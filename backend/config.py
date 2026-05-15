@@ -1,0 +1,30 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
+
+    app_name: str = "ai-operational-memory"
+    app_env: str = "development"
+    app_version: str = "0.1.0"
+    debug: bool = False
+
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+    log_level: str = "INFO"
+    log_format: str = "json"
+
+    db_path: str = "data/operational_memory.db"
+
+    scan_interval_seconds: int = 300
+    max_scan_history: int = 100
+    scan_targets: str = "."
+    reports_dir: str = "data/reports"
+
+
+settings = Settings()
