@@ -16,6 +16,7 @@ from reports.generator import ReportGenerator
 from scanners.process_scanner import ProcessScanner
 from scanners.registry import ScannerRegistry
 from scanners.repo_scanner import RepoScanner
+from scanners.service_scanner import ServiceScanner
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     registry = ScannerRegistry()
     registry.register(RepoScanner())
     registry.register(ProcessScanner())
+    registry.register(ServiceScanner())
     app.state.registry = registry
 
     # Scheduler

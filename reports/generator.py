@@ -2,7 +2,10 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from topology.models import CostObservation, InferredWorkflow, Recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +121,99 @@ class ReportGenerator:
 
         report = "\n".join(lines)
         self._save(f"drift_{prev_id}_to_{curr_id}.md", report)
+        return report
+
+    def topology_report(
+        self,
+        topology: dict[str, Any],
+        workflows: "list[InferredWorkflow]",
+        cost_observations: "list[CostObservation]",
+        recommendations: "list[Recommendation]",
+        snapshot_id: int,
+    ) -> str:
+        lines = [
+            "# Topology Intelligence Report",
+            f"**Generated:** {_now()}",
+            f"**Snapshot ID:** {snapshot_id}",
+            f"**Nodes:** {topology.get('node_count', 0)} | **Edges:** {topology.get('edge_count', 0)}",
+            "",
+        ]
+
+        # Topology summary by node type
+        nodes_by_type: dict[str, list[str]] = {}
+        for node in topology.get("nodes", []):
+            nt = node.get("node_type", "unknown")
+            nodes_by_type.setdefault(nt, []).append(node.get("label", node.get("id", "?")))
+
+        if nodes_by_type:
+            lines += ["## Detected Components", ""]
+            for node_type, labels in sorted(nodes_by_type.items()):
+                lines.append(f"**{node_type.replace('_', ' ').title()}:** {', '.join(sorted(labels))}")
+            lines.append("")
+
+        # Inferred workflows
+        if workflows:
+            lines += ["## Inferred Workflows", ""]
+            for wf in workflows:
+                tier = wf.estimated_cost_tier if hasattr(wf, "estimated_cost_tier") else wf.get("estimated_cost_tier", "unknown")  # type: ignore[union-attr]
+                name = wf.name if hasattr(wf, "name") else wf.get("name", "?")  # type: ignore[union-attr]
+                description = wf.description if hasattr(wf, "description") else wf.get("description", "")  # type: ignore[union-attr]
+                confidence = wf.confidence if hasattr(wf, "confidence") else wf.get("confidence", 0)  # type: ignore[union-attr]
+                lines += [
+                    f"### {name}",
+                    f"*{description}*",
+                    f"- **Confidence:** {round(float(confidence), 2)} | **Cost Tier:** {tier}",
+                ]
+                evidence = wf.evidence if hasattr(wf, "evidence") else wf.get("evidence", [])  # type: ignore[union-attr]
+                for ev in (evidence or []):
+                    lines.append(f"  - {ev}")
+                lines.append("")
+        else:
+            lines += ["## Inferred Workflows", "_No workflow patterns detected._", ""]
+
+        # Cost observations
+        if cost_observations:
+            lines += ["## Cost Intelligence", ""]
+            for obs in cost_observations:
+                observation = obs.observation if hasattr(obs, "observation") else obs.get("observation", "")  # type: ignore[union-attr]
+                severity = obs.severity if hasattr(obs, "severity") else obs.get("severity", "info")  # type: ignore[union-attr]
+                tier = obs.estimated_tier if hasattr(obs, "estimated_tier") else obs.get("estimated_tier", "unknown")  # type: ignore[union-attr]
+                icon = {"high": "🔴", "warning": "🟡", "info": "🔵"}.get(severity, "⚪")
+                lines += [f"- {icon} **[{severity.upper()} / {tier}]** {observation}"]
+            lines.append("")
+        else:
+            lines += ["## Cost Intelligence", "_No cost observations generated._", ""]
+
+        # Recommendations
+        if recommendations:
+            lines += ["## Recommendations", ""]
+            for i, rec in enumerate(recommendations, 1):
+                title = rec.title if hasattr(rec, "title") else rec.get("title", "?")  # type: ignore[union-attr]
+                observation = rec.observation if hasattr(rec, "observation") else rec.get("observation", "")  # type: ignore[union-attr]
+                impact = rec.impact if hasattr(rec, "impact") else rec.get("impact", "low")  # type: ignore[union-attr]
+                category = rec.category if hasattr(rec, "category") else rec.get("category", "")  # type: ignore[union-attr]
+                confidence = rec.confidence if hasattr(rec, "confidence") else rec.get("confidence", 0)  # type: ignore[union-attr]
+                suggested = rec.suggested_investigation if hasattr(rec, "suggested_investigation") else rec.get("suggested_investigation", "")  # type: ignore[union-attr]
+                lines += [
+                    f"### {i}. {title}",
+                    f"**Category:** {category} | **Impact:** {impact} | **Confidence:** {round(float(confidence), 2)}",
+                    "",
+                    observation,
+                    "",
+                    f"**Suggested Investigation:** {suggested}",
+                    "",
+                ]
+        else:
+            lines += ["## Recommendations", "_No recommendations generated._", ""]
+
+        lines += [
+            "---",
+            "*Advisory only — all operational decisions require human review.*",
+            "*Generated by AI Operational Memory — Observe automatically. Decide manually.*",
+        ]
+
+        report = "\n".join(lines)
+        self._save(f"topology_{snapshot_id}.md", report)
         return report
 
     def export_json(self, data: dict[str, Any], filename: str) -> str:
