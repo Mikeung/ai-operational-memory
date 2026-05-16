@@ -62,3 +62,12 @@
 | 2026-05-16 | clean_snapshots excludes info findings | AuditReport.clean_snapshots counts snapshots with no errors or warnings; info-level volume notes do not mark a snapshot as dirty |
 | 2026-05-16 | Benchmarks are standalone scripts, not pytest | benchmarks/ uses perf_counter with 10-run averaging; isolated from test suite to prevent slow CI runs |
 | 2026-05-16 | Stability router groups Phase 7 endpoints | /stability/* prefix avoids polluting existing router prefixes; covers schema, confidence, validation, audit in one focused router |
+| 2026-05-16 | DeploymentProfile as frozen dataclass | Three named profiles (minimal/standard/extended) are immutable bundles; .env overrides them at runtime; profiles are starting points not constraints |
+| 2026-05-16 | RetentionPolicy dry_run=True as safe default | Operators must explicitly set dry_run=False to delete; GET /operations/retention is always dry-run; never silently deletes |
+| 2026-05-16 | Retention min_keep_count as safety floor | Always preserves N most recent snapshots regardless of age/count policy; prevents accidental total erasure |
+| 2026-05-16 | StorageHygieneEngine reads only, never deletes | All storage pressure assessment is observational; operators use output to decide whether to run retention |
+| 2026-05-16 | Scheduler hardening uses per-job tracking dict | Thread-safe dict (lock-guarded) tracks last_success, consecutive_errors, total_runs per job_id; no DB writes required |
+| 2026-05-16 | Stale job detection uses 3x interval threshold | Jobs with last_success older than 3x their scan interval flagged as stale; chosen to avoid false positives on legitimate slow scans |
+| 2026-05-16 | SelfCheck has 5 deterministic checks | Scheduler, freshness, schema, count, storage; each returns SelfCheckItem with severity; no LLM cognition in self-check path |
+| 2026-05-16 | Scripts are bash, no root required | bootstrap/update/backup/restore/healthcheck use virtualenv; sqlite3 hot-backup via .backup command; designed for single VPS operator |
+| 2026-05-16 | Operations router at /operations/* prefix | Separates deployment/maintenance concerns from intelligence endpoints; retention POST requires explicit dry_run=false param |

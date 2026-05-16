@@ -5,11 +5,12 @@ from backend.health import router as health_router
 from backend.lifecycle import lifespan
 from backend.routers.ecosystem import router as ecosystem_router
 from backend.routers.investigation import router as investigation_router
-from backend.routers.stability import router as stability_router
+from backend.routers.operations import router as operations_router
 from backend.routers.reports import router as reports_router
 from backend.routers.runtime import router as runtime_router
 from backend.routers.scan import router as scan_router
 from backend.routers.snapshots import router as snapshots_router
+from backend.routers.stability import router as stability_router
 from backend.routers.temporal import router as temporal_router
 from backend.routers.topology import router as topology_router
 
@@ -32,6 +33,7 @@ app.include_router(runtime_router)
 app.include_router(investigation_router)
 app.include_router(ecosystem_router)
 app.include_router(stability_router)
+app.include_router(operations_router)
 
 
 @app.get("/", tags=["system"])
@@ -96,5 +98,14 @@ def root() -> dict:
             "validate_synthesis_report": "GET /stability/validate/synthesis/report",
             "audit_snapshots": "GET /stability/audit/snapshots",
             "audit_snapshots_report": "GET /stability/audit/snapshots/report",
+            "selfcheck": "GET /operations/selfcheck",
+            "retention_preview": "GET /operations/retention",
+            "retention_execute": "POST /operations/retention/execute",
+            "storage": "GET /operations/storage",
+            "scheduler_health": "GET /operations/scheduler",
+            "readiness": "GET /operations/readiness",
+            "readiness_report": "GET /operations/readiness/report",
+            "active_profile": "GET /operations/profile",
+            "list_profiles": "GET /operations/profiles",
         },
     }

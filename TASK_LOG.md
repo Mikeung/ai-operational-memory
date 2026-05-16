@@ -75,3 +75,14 @@
 | 071 | Operational benchmarks         | Completed | 2026-05-16: benchmarks/ — bench_synthesis.py, bench_snapshot_scale.py, run_all.py; synthesis + drift + audit timing |
 | 072 | Stability API routes           | Completed | 2026-05-16: backend/routers/stability.py — 8 endpoints: schema validate, confidence explain, cognition validation, snapshot audit |
 | 073 | Phase 7 tests                  | Completed | 2026-05-16: 138 new tests — snapshot_schema (32), confidence (26), validation (30), query_workflows (30), snapshot_audit (40); 516 total passing |
+| 074 | Deployment profiles            | Completed | 2026-05-16: config/profiles.py — DeploymentProfile frozen dataclass, MINIMAL/STANDARD/EXTENDED profiles, get_profile/list_profiles/profile_names helpers |
+| 075 | Snapshot retention management  | Completed | 2026-05-16: memory/retention.py — RetentionPolicy, RetentionEngine, RetentionPlan, RetentionResult, dry-run safe default; memory/store.py — delete_snapshots_by_ids, count_snapshots, get_db_size_bytes |
+| 076 | Storage hygiene engine         | Completed | 2026-05-16: memory/storage_hygiene.py — StorageHygieneEngine, StorageEstimate, StorageGrowthObservation, pressure levels, disk+count thresholds |
+| 077 | Scheduler hardening            | Completed | 2026-05-16: backend/scheduler.py — per-job tracking, last_success, consecutive_errors, total_runs, degraded detection, stale job detection, get_health_status() |
+| 078 | Runtime self-checks            | Completed | 2026-05-16: tools/selfcheck.py — SystemSelfChecker, SelfCheckReport, SelfCheckItem; 5 checks: scheduler, freshness, schema, count, storage |
+| 079 | Packaging and bootstrap scripts | Completed | 2026-05-16: scripts/bootstrap.sh, update.sh, backup.sh, restore.sh, healthcheck.sh — all executable, VPS-native, no root required |
+| 080 | Maintenance reports            | Completed | 2026-05-16: reports/maintenance.py — 5 generators: maintenance, retention_summary, scheduler_health, storage_growth, deployment_readiness |
+| 081 | Deployment documentation       | Completed | 2026-05-16: docs/DEPLOYMENT.md, docs/OPERATIONS.md, docs/MAINTENANCE.md — VPS setup, operations reference, maintenance procedures |
+| 082 | Operations API routes          | Completed | 2026-05-16: backend/routers/operations.py — 11 endpoints: /operations/selfcheck, retention, storage, scheduler, readiness, profile, profiles |
+| 083 | Operations router wired        | Completed | 2026-05-16: backend/main.py — operations_router registered, 9 endpoints added to root dict |
+| 084 | Phase 8 tests                  | Completed | 2026-05-16: 85 new tests — test_profiles (22), test_retention (17), test_selfcheck (13), test_storage_hygiene (10), test_maintenance_reports (23); 601 total passing |

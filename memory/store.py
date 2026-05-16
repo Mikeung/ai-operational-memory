@@ -133,6 +133,43 @@ class OperationalStore:
         ).fetchall()
         return [_deserialize_snapshot(dict(r)) for r in rows]
 
+    def count_snapshots(self, snapshot_type: str | None = None) -> int:
+        """Return the total number of stored snapshots, optionally filtered by type."""
+        assert self._conn is not None
+        if snapshot_type:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM snapshots WHERE snapshot_type = ?",
+                (snapshot_type,),
+            ).fetchone()
+        else:
+            row = self._conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()
+        return int(row[0]) if row else 0
+
+    def delete_snapshots_by_ids(self, snapshot_ids: list[int]) -> int:
+        """Delete snapshots by ID list. Returns the number of rows deleted.
+
+        Never called automatically — only invoked by explicit operator action
+        via RetentionEngine.execute() with dry_run=False.
+        """
+        assert self._conn is not None
+        if not snapshot_ids:
+            return 0
+        placeholders = ",".join("?" * len(snapshot_ids))
+        cursor = self._conn.execute(
+            f"DELETE FROM snapshots WHERE id IN ({placeholders})",
+            snapshot_ids,
+        )
+        self._conn.commit()
+        deleted = cursor.rowcount
+        logger.info("Snapshots deleted", extra={"count": deleted, "ids": snapshot_ids})
+        return deleted
+
+    def get_db_size_bytes(self) -> int:
+        """Return the size of the SQLite database file in bytes."""
+        if self.db_path.exists():
+            return self.db_path.stat().st_size
+        return 0
+
 
 def _deserialize_snapshot(row: dict[str, Any]) -> dict[str, Any]:
     if "data" in row and isinstance(row["data"], str):

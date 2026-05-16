@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(journalctl *)",
+      "Bash(systemctl status *)",
+      "Bash(pip show *)",
+      "Bash(pip3 show *)",
+      "Bash(pip freeze)"
+    ]
+  }
+}

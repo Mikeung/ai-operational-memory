@@ -1,0 +1,286 @@
+"""
+Snapshot retention management — lifecycle pruning for operational memory.
+
+Retention is advisory-first:
+- dry_run mode previews deletions without executing them (SAFE DEFAULT)
+- All deletion operations generate a RetentionResult report
+- min_keep_count is always enforced as a safety floor
+- Never silently deletes snapshots
+
+Three retention axes:
+- Age:   delete snapshots older than retention_days
+- Count: keep only the max_snapshot_count most recent
+- Both:  candidates that violate both rules are labelled "both"
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Policy
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class RetentionPolicy:
+    """Immutable configuration bundle for a retention run."""
+
+    retention_days: int = 30
+    max_snapshot_count: int = 200
+    min_keep_count: int = 10
+    dry_run: bool = True  # safe default — never deletes without explicit opt-in
+
+    def __post_init__(self) -> None:
+        if self.min_keep_count < 1:
+            raise ValueError("min_keep_count must be at least 1")
+        if self.max_snapshot_count < self.min_keep_count:
+            raise ValueError("max_snapshot_count must be >= min_keep_count")
+        if self.retention_days < 1:
+            raise ValueError("retention_days must be at least 1")
+
+    @classmethod
+    def from_deployment_profile(cls, profile: Any, *, dry_run: bool = True) -> RetentionPolicy:
+        """Build a RetentionPolicy from a DeploymentProfile."""
+        return cls(
+            retention_days=profile.retention_days,
+            max_snapshot_count=profile.max_snapshot_count,
+            min_keep_count=profile.min_keep_count,
+            dry_run=dry_run,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RetentionCandidate:
+    snapshot_id: int
+    created_at: str
+    reason: str  # "too_old" | "exceeds_count" | "both"
+
+
+@dataclass
+class RetentionPlan:
+    """Read-only description of what a retention run would do."""
+
+    policy: RetentionPolicy
+    total_snapshots: int
+    candidates: list[RetentionCandidate]
+    kept_count: int
+    dry_run: bool
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def deletion_count(self) -> int:
+        return len(self.candidates)
+
+    def summary(self) -> str:
+        prefix = "[DRY RUN] " if self.dry_run else ""
+        return (
+            f"{prefix}Retention plan: {self.total_snapshots} total, "
+            f"{self.deletion_count} to delete, {self.kept_count} to keep. "
+            f"Policy: {self.policy.retention_days}d age / "
+            f"{self.policy.max_snapshot_count} max count."
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "policy": {
+                "retention_days": self.policy.retention_days,
+                "max_snapshot_count": self.policy.max_snapshot_count,
+                "min_keep_count": self.policy.min_keep_count,
+                "dry_run": self.policy.dry_run,
+            },
+            "total_snapshots": self.total_snapshots,
+            "deletion_count": self.deletion_count,
+            "kept_count": self.kept_count,
+            "dry_run": self.dry_run,
+            "candidates": [
+                {
+                    "id": c.snapshot_id,
+                    "created_at": c.created_at,
+                    "reason": c.reason,
+                }
+                for c in self.candidates
+            ],
+            "generated_at": self.generated_at,
+        }
+
+
+@dataclass
+class RetentionResult:
+    """Outcome of a retention execution (or dry-run preview)."""
+
+    plan: RetentionPlan
+    deleted_ids: list[int]
+    executed: bool
+    message: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan": self.plan.to_dict(),
+            "deleted_ids": self.deleted_ids,
+            "executed": self.executed,
+            "message": self.message,
+            "advisory": "All retention operations require explicit operator approval.",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
+
+class RetentionEngine:
+    """
+    Plans and optionally executes snapshot retention pruning.
+
+    dry_run=True (the safe default on RetentionPolicy) generates a plan
+    without touching storage. dry_run=False executes deletions after planning.
+
+    The engine itself holds no state — all decisions are derived from the
+    snapshots list and the policy passed in.
+    """
+
+    def plan(
+        self,
+        snapshots: list[dict[str, Any]],
+        policy: RetentionPolicy,
+    ) -> RetentionPlan:
+        """Compute which snapshots should be deleted. Does NOT modify storage."""
+        sorted_snaps = sorted(
+            snapshots,
+            key=lambda s: s.get("created_at", ""),
+            reverse=True,  # newest first
+        )
+        total = len(sorted_snaps)
+        cutoff = datetime.now(UTC) - timedelta(days=policy.retention_days)
+
+        # Safety floor: always protect the N most recent
+        protected_ids = {s["id"] for s in sorted_snaps[: policy.min_keep_count]}
+
+        candidates: dict[int, RetentionCandidate] = {}
+
+        # Age rule
+        for snap in sorted_snaps:
+            snap_id = snap.get("id")
+            if snap_id is None or snap_id in protected_ids:
+                continue
+            ts_str = snap.get("created_at", "")
+            try:
+                ts = datetime.fromisoformat(ts_str.replace(" ", "T"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                if ts < cutoff:
+                    if snap_id in candidates:
+                        candidates[snap_id].reason = "both"
+                    else:
+                        candidates[snap_id] = RetentionCandidate(
+                            snapshot_id=snap_id,
+                            created_at=ts_str,
+                            reason="too_old",
+                        )
+            except (ValueError, AttributeError):
+                pass  # unparseable timestamp — skip, never delete speculatively
+
+        # Count rule
+        if total > policy.max_snapshot_count:
+            for snap in sorted_snaps[policy.max_snapshot_count :]:
+                snap_id = snap.get("id")
+                if snap_id is None or snap_id in protected_ids:
+                    continue
+                if snap_id in candidates:
+                    candidates[snap_id].reason = "both"
+                else:
+                    candidates[snap_id] = RetentionCandidate(
+                        snapshot_id=snap_id,
+                        created_at=snap.get("created_at", ""),
+                        reason="exceeds_count",
+                    )
+
+        candidate_list = list(candidates.values())
+        kept_count = total - len(candidate_list)
+
+        logger.info(
+            "Retention plan computed",
+            extra={
+                "total": total,
+                "candidates": len(candidate_list),
+                "kept": kept_count,
+                "dry_run": policy.dry_run,
+            },
+        )
+        return RetentionPlan(
+            policy=policy,
+            total_snapshots=total,
+            candidates=candidate_list,
+            kept_count=kept_count,
+            dry_run=policy.dry_run,
+        )
+
+    def execute(
+        self,
+        plan: RetentionPlan,
+        delete_fn: Callable[[list[int]], int],
+    ) -> RetentionResult:
+        """
+        Execute a retention plan.
+
+        delete_fn must accept list[int] of snapshot IDs and return deleted count.
+        If plan.dry_run is True, reports the plan without deleting anything.
+        """
+        if plan.dry_run:
+            logger.info(
+                "Retention dry run — no deletions performed",
+                extra={"candidates": plan.deletion_count},
+            )
+            return RetentionResult(
+                plan=plan,
+                deleted_ids=[],
+                executed=False,
+                message=(
+                    f"Dry run: {plan.deletion_count} snapshot(s) identified for deletion. "
+                    "Set dry_run=False on the RetentionPolicy to execute."
+                ),
+            )
+
+        if not plan.candidates:
+            return RetentionResult(
+                plan=plan,
+                deleted_ids=[],
+                executed=True,
+                message="No snapshots to delete — retention policy already satisfied.",
+            )
+
+        ids_to_delete = [c.snapshot_id for c in plan.candidates]
+        deleted_count = delete_fn(ids_to_delete)
+        logger.info(
+            "Retention executed",
+            extra={"deleted": deleted_count, "ids": ids_to_delete},
+        )
+        return RetentionResult(
+            plan=plan,
+            deleted_ids=ids_to_delete,
+            executed=True,
+            message=(
+                f"Deleted {deleted_count} snapshot(s). "
+                f"{plan.kept_count} snapshot(s) retained."
+            ),
+        )
+
+    def plan_and_execute(
+        self,
+        snapshots: list[dict[str, Any]],
+        policy: RetentionPolicy,
+        delete_fn: Callable[[list[int]], int],
+    ) -> RetentionResult:
+        """Convenience: plan then execute in one call."""
+        retention_plan = self.plan(snapshots, policy)
+        return self.execute(retention_plan, delete_fn)
