@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from backend.config import settings
 from backend.health import router as health_router
 from backend.lifecycle import lifespan
+from backend.routers.ecosystem import router as ecosystem_router
 from backend.routers.investigation import router as investigation_router
 from backend.routers.reports import router as reports_router
 from backend.routers.runtime import router as runtime_router
@@ -28,6 +29,7 @@ app.include_router(topology_router)
 app.include_router(temporal_router)
 app.include_router(runtime_router)
 app.include_router(investigation_router)
+app.include_router(ecosystem_router)
 
 
 @app.get("/", tags=["system"])
@@ -72,5 +74,17 @@ def root() -> dict:
             "evidence_recommendation": "GET /investigation/evidence/recommendation",
             "evidence_severity": "GET /investigation/evidence/severity",
             "persistent_report": "GET /investigation/report/persistent",
+            "ecosystem_summary": "GET /ecosystem/summary",
+            "ecosystem_themes": "GET /ecosystem/themes",
+            "ecosystem_clusters": "GET /ecosystem/clusters",
+            "ecosystem_drift": "GET /ecosystem/drift",
+            "ecosystem_trends": "GET /ecosystem/trends",
+            "ecosystem_review": "GET /ecosystem/review",
+            "ecosystem_report_themes": "GET /ecosystem/report/themes",
+            "ecosystem_report_concerns": "GET /ecosystem/report/concerns",
+            "ecosystem_report_drift": "GET /ecosystem/report/drift",
+            "ecosystem_report_complexity": "GET /ecosystem/report/complexity",
+            "ecosystem_digest_weekly": "GET /ecosystem/digest/weekly",
+            "ecosystem_digest_strategic": "GET /ecosystem/digest/strategic",
         },
     }

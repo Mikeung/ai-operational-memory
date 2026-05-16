@@ -403,3 +403,239 @@ def _trend_label(volatility: float) -> str:
     if volatility >= 0.2:
         return "Low volatility — minor changes detected"
     return "Stable — minimal infrastructure change"
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Ecosystem-level digest functions
+# ---------------------------------------------------------------------------
+
+def generate_ecosystem_review_digest(
+    summary: dict[str, Any],
+    clusters: list[dict[str, Any]] | None = None,
+    drift: dict[str, Any] | None = None,
+) -> str:
+    """Concise ecosystem operational review digest.
+
+    Answers: What is happening to the ecosystem overall?
+    """
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    overall = summary.get("overall_health", "unknown")
+    dominant = summary.get("dominant_theme", "")
+    themes = summary.get("themes", [])
+    systemic = summary.get("systemic_concerns", [])
+    snap_count = summary.get("snapshot_count", 0)
+    confidence = summary.get("confidence", 0.0)
+
+    lines: list[str] = [
+        f"# Ecosystem Operational Review — {now}",
+        f"**Status:** {overall.upper()} | **Snapshots:** {snap_count} | **Confidence:** {confidence:.2f}",
+        "",
+    ]
+
+    if dominant:
+        lines.append(f"> **Dominant theme:** {dominant.replace('_', ' ').title()}")
+        lines.append("")
+
+    if systemic:
+        lines.append(f"**{len(systemic)} systemic concern(s) detected (cross-cutting):**")
+        for c in systemic[:3]:
+            lines.append(f"- [{c.get('severity', '?').upper()}] {c.get('title', '?')}")
+        lines.append("")
+
+    if themes:
+        high_themes = [t for t in themes if t.get("severity_hint") == "high"]
+        if high_themes:
+            lines.append("**High-severity themes:**")
+            for t in high_themes[:3]:
+                lines.append(f"- {t.get('label', t.get('name', '?'))}: {', '.join(t.get('evidence', [])[:1])}")
+            lines.append("")
+
+    active_clusters = [c for c in (clusters or []) if c.get("active")]
+    if active_clusters:
+        lines.append(f"**{len(active_clusters)} active concern cluster(s):** {', '.join(c.get('label', '?') for c in active_clusters[:3])}")
+        lines.append("")
+
+    if drift and drift.get("significant_drift_count", 0) > 0:
+        lines.append(f"**Drift:** {drift['significant_drift_count']} significant trend(s) — {', '.join(drift.get('evidence', [])[:2])}")
+        lines.append("")
+
+    lines += [
+        "---",
+        "*Advisory only — all operational decisions require human review.*",
+    ]
+    return "\n".join(lines)
+
+
+def generate_weekly_synthesis_digest(
+    snapshots: list[dict[str, Any]],
+    themes: list[dict[str, Any]] | None = None,
+    recurring_issues: list[dict[str, Any]] | None = None,
+    consolidated: list[dict[str, Any]] | None = None,
+) -> str:
+    """Weekly synthesis digest — what dominated the week operationally?"""
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    snap_count = len(snapshots)
+    all_recs: list[dict] = []
+    for snap in snapshots:
+        all_recs.extend(snap.get("data", {}).get("recommendations", []))
+
+    rec_categories: dict[str, int] = {}
+    for rec in all_recs:
+        cat = rec.get("category", "unknown")
+        rec_categories[cat] = rec_categories.get(cat, 0) + 1
+
+    lines: list[str] = [
+        f"# Weekly Synthesis Digest — {now}",
+        f"**Snapshots analyzed:** {snap_count} | **Total recommendations:** {len(all_recs)}",
+        "",
+    ]
+
+    if themes:
+        active_themes = [t for t in themes if t.get("evidence")]
+        if active_themes:
+            lines += ["## Dominant Themes This Week", ""]
+            for t in active_themes[:3]:
+                lines.append(f"- **{t.get('label', '?')}** — {t.get('description', '')[:80]}")
+            lines.append("")
+
+    if rec_categories:
+        top_cats = sorted(rec_categories.items(), key=lambda x: -x[1])[:4]
+        lines += ["## Top Recommendation Categories", ""]
+        for cat, count in top_cats:
+            lines.append(f"- {cat}: {count} occurrence(s)")
+        lines.append("")
+
+    if recurring_issues:
+        lines += [f"## Recurring Issues ({len(recurring_issues)} detected)", ""]
+        for issue in recurring_issues[:4]:
+            lines.append(f"- [{issue.get('severity_hint', '?').upper()}] {issue.get('pattern', '?')[:70]} ({issue.get('occurrences', 0)}x)")
+        lines.append("")
+
+    if consolidated:
+        lines += [f"## Consolidated Concerns ({len(consolidated)} groups)", ""]
+        for c in consolidated[:4]:
+            lines.append(f"- {c.get('title', '?')} ({c.get('member_count', 0)} source recs)")
+        lines.append("")
+
+    lines += [
+        "---",
+        "*Advisory only — all operational decisions require human review.*",
+    ]
+    return "\n".join(lines)
+
+
+def generate_ecosystem_drift_digest(drift: dict[str, Any]) -> str:
+    """Ecosystem drift digest — what is changing at the ecosystem level?"""
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    overall_score = drift.get("overall_drift_score", 0.0)
+    sig_count = drift.get("significant_drift_count", 0)
+    snap_count = drift.get("snapshot_count", 0)
+    trends = drift.get("drift_trends", [])
+    complexity = drift.get("complexity_trend", {})
+
+    lines: list[str] = [
+        f"# Ecosystem Drift Digest — {now}",
+        f"**Drift score:** {overall_score:.2f} | **Significant trends:** {sig_count} | **Snapshots:** {snap_count}",
+        "",
+    ]
+
+    sig_trends = [t for t in trends if t.get("significant")]
+    if sig_trends:
+        lines += ["## Significant Drift", ""]
+        for t in sig_trends[:4]:
+            dim = t.get("dimension", "?").replace("_", " ").title()
+            direction = t.get("direction", "?")
+            mag = t.get("magnitude", 0.0)
+            lines.append(f"- **{dim}:** {direction} (magnitude {mag:.2f})")
+        lines.append("")
+    else:
+        lines += ["_No significant drift detected across analyzed dimensions._", ""]
+
+    direction = complexity.get("direction", "stable")
+    delta = complexity.get("delta", 0.0)
+    lines.append(f"**Complexity trend:** {direction} (delta {delta:+.2f})")
+    lines.append("")
+
+    lines += [
+        "---",
+        "*Advisory only — all operational decisions require human review.*",
+    ]
+    return "\n".join(lines)
+
+
+def generate_operational_theme_digest(themes: list[dict[str, Any]]) -> str:
+    """Operational theme digest — what themes currently dominate?"""
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    lines: list[str] = [
+        f"# Operational Theme Digest — {now}",
+        f"**Themes detected:** {len(themes)}",
+        "",
+    ]
+
+    if not themes:
+        lines += ["_No operational themes detected._", ""]
+    else:
+        for t in themes[:5]:
+            sev = t.get("severity_hint", "?")
+            label = t.get("label", t.get("name", "?"))
+            prevalence = t.get("prevalence", 0.0)
+            evidence = t.get("evidence", [])
+            lines.append(f"**[{sev.upper()}] {label}** ({prevalence:.0%})")
+            if evidence:
+                lines.append(f"  → {evidence[0]}")
+        lines.append("")
+
+    lines += [
+        "---",
+        "*Advisory only — all operational decisions require human review.*",
+    ]
+    return "\n".join(lines)
+
+
+def generate_strategic_attention_digest(
+    summary: dict[str, Any],
+    severity: dict[str, Any] | None = None,
+    attention: dict[str, Any] | None = None,
+) -> str:
+    """Strategic attention digest — what deserves operator focus right now?"""
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    overall = summary.get("overall_health", "unknown")
+    systemic = summary.get("systemic_concerns", [])
+    themes = summary.get("themes", [])
+    sev_level = severity.get("level", "unknown") if severity else "unknown"
+    sev_score = severity.get("score", 0.0) if severity else 0.0
+
+    lines: list[str] = [
+        f"# Strategic Attention Digest — {now}",
+        f"**Ecosystem health:** {overall.upper()} | **Severity:** {sev_level.upper()} ({sev_score:.2f})",
+        "",
+    ]
+
+    if systemic:
+        lines += ["## Requires Attention — Systemic (Cross-Cutting)", ""]
+        for c in systemic[:3]:
+            sev = c.get("severity", "?")
+            lines.append(f"- **[{sev.upper()}]** {c.get('title', '?')}")
+            lines.append(f"  Themes: {', '.join(c.get('contributing_themes', []))}")
+        lines.append("")
+
+    high_themes = [t for t in themes if t.get("severity_hint") == "high"]
+    if high_themes:
+        lines += ["## Requires Review — High-Severity Themes", ""]
+        for t in high_themes[:3]:
+            lines.append(f"- **{t.get('label', '?')}:** {', '.join(t.get('evidence', [])[:1])}")
+        lines.append("")
+
+    if attention:
+        top_concerns = attention.get("top_concerns", [])
+        if top_concerns:
+            lines += ["## Prioritized Concerns", ""]
+            for item in top_concerns[:4]:
+                lines.append(f"- [{item.get('urgency', '?').upper()}] {item.get('title', '?')}")
+            lines.append("")
+
+    lines += [
+        "---",
+        "*Advisory only — all operational decisions require human review.*",
+    ]
+    return "\n".join(lines)

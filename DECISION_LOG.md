@@ -46,3 +46,12 @@
 | 2026-05-16 | EvidenceTree depth hard-capped at 3 | Prevents unbounded tree growth; depth 3 (conclusion → factor → sub-evidence) covers all meaningful operational traces without cognitive overload |
 | 2026-05-16 | Investigation router uses get_by_id() not get_snapshot_by_id() | SnapshotEngine exposes get_by_id(); naming mismatch caught during test integration; fixed before commit |
 | 2026-05-16 | B008 and E741 added to ruff ignore | B008 (FastAPI Depends in defaults) is the accepted FastAPI pattern; E741 (ambiguous l variable names) found in continuity iteration patterns — suppressed globally |
+| 2026-05-16 | HeuristicRegistry as frozen dataclass registry | Single source of truth for all numeric thresholds across cognition modules; immutable at runtime; no rules engine — just named constants with documentation |
+| 2026-05-16 | theme_minimum_evidence = 2.0 | A single signal may be incidental; 2+ signals constitute a theme; prevents single-data-point themes from polluting ecosystem summaries |
+| 2026-05-16 | 5 named concern clusters (rule-based only) | high_cost_llm_processing, unstable_orchestration, provider_risk, runtime_degradation, cost_accumulation; each activates from explicit signal intersection — no clustering algorithms, no ML |
+| 2026-05-16 | Clusters explicitly labeled as organizational aids | Note field states "clusters are organizational aids — not causal assertions"; prevents misuse of clustering output as diagnosis |
+| 2026-05-16 | Drift uses early-third vs recent-third window split | Avoids point-in-time comparison artifacts; 1-snapshot comparisons too noisy; thirds provide stability while still detecting trend direction |
+| 2026-05-16 | Consolidation is 3-pass (category → evidence → cluster) | Category grouping first (deterministic), then evidence keyword overlap (shared signal detection), then cluster bridging (cross-category); each pass is auditable independently |
+| 2026-05-16 | ConsolidatedConcern preserves source rec titles | Traceability requirement: every consolidated concern must name all contributing recommendations so operator can trace back to originating evidence |
+| 2026-05-16 | Ecosystem synthesis engine is strictly deterministic | No LLM cognition, no embeddings, no vector search; all theme extraction uses explicit pattern-name intersections and category-set matching |
+| 2026-05-16 | Bounded language enforced in all ecosystem reports | Reports use "appears to", "evidence suggests", "historically associated with"; certainty words (will/causes/proves) prohibited per operational philosophy |

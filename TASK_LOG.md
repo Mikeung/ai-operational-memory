@@ -56,3 +56,13 @@
 | 052 | Investigation API routes       | Completed | 2026-05-16: backend/routers/investigation.py — 12 investigation endpoints under /investigation prefix |
 | 053 | Investigation router wired     | Completed | 2026-05-16: backend/main.py — investigation_router registered, 12 endpoints in root dict |
 | 054 | Phase 5 tests                  | Completed | 2026-05-16: 105 new tests — investigation (17), comparison (12), continuity (13), evidence_trace (15), patterns (19), explanations (29); 271 total passing |
+| 055 | Heuristic registry             | Completed | 2026-05-16: cognition/heuristics.py — HeuristicRegistry, 17 named thresholds, frozen Heuristic dataclass, by_module() + to_dict() |
+| 056 | Ecosystem synthesis engine     | Completed | 2026-05-16: cognition/synthesis.py — EcosystemSynthesisEngine, 5 OperationalTheme types, SystemicConcern, EcosystemTrend, EcosystemSummary |
+| 057 | Concern clustering engine      | Completed | 2026-05-16: cognition/clustering.py — ConcernClusteringEngine, 5 named clusters, rule-based scoring, active/inactive flags |
+| 058 | Systemic drift engine          | Completed | 2026-05-16: cognition/systemic_drift.py — SystemicDriftEngine, 5 DriftTrend dimensions, EcosystemInstabilityIndicator, OperationalComplexityTrend |
+| 059 | Consolidation engine           | Completed | 2026-05-16: cognition/consolidation.py — ConsolidationEngine, 3-pass grouping (category → evidence → cluster bridge), ConsolidatedConcern |
+| 060 | Ecosystem review reports       | Completed | 2026-05-16: reports/ecosystem_review.py — 5 markdown generators: ecosystem_review, theme, concern, drift, complexity |
+| 061 | Ecosystem digests              | Completed | 2026-05-16: reports/digest.py expanded — 5 ecosystem digest generators: review, weekly synthesis, drift, theme, strategic attention |
+| 062 | Ecosystem API routes           | Completed | 2026-05-16: backend/routers/ecosystem.py — 12 read-only endpoints under /ecosystem prefix |
+| 063 | Ecosystem router wired         | Completed | 2026-05-16: backend/main.py — ecosystem_router registered, 12 endpoints in root dict |
+| 064 | Phase 6 tests                  | Completed | 2026-05-16: 107 new tests — heuristics (11), synthesis (18), clustering (22), systemic_drift (27), consolidation (20), ecosystem_review (27); 378 total passing |
