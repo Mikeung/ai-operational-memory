@@ -66,3 +66,12 @@
 | 062 | Ecosystem API routes           | Completed | 2026-05-16: backend/routers/ecosystem.py — 12 read-only endpoints under /ecosystem prefix |
 | 063 | Ecosystem router wired         | Completed | 2026-05-16: backend/main.py — ecosystem_router registered, 12 endpoints in root dict |
 | 064 | Phase 6 tests                  | Completed | 2026-05-16: 107 new tests — heuristics (11), synthesis (18), clustering (22), systemic_drift (27), consolidation (20), ecosystem_review (27); 378 total passing |
+| 065 | Snapshot schema stabilization  | Completed | 2026-05-16: schemas/snapshot_schema.py — SnapshotValidator, SchemaViolation, SchemaValidationResult, normalize(), batch_summary(), schema_version="1.0" |
+| 066 | Confidence normalization       | Completed | 2026-05-16: cognition/confidence.py — ConfidenceNormalizer, ConfidenceScore, evidence-density weighting, interpretation bands, from_synthesis_inputs() |
+| 067 | Cognition consistency validation | Completed | 2026-05-16: cognition/validation.py — CognitionValidator, 10 named warning codes, ValidationReport with markdown(), run_all() |
+| 068 | Operator query workflows       | Completed | 2026-05-16: cognition/query_workflows.py — OperatorQueryWorkflow with 6 structured investigation workflows, WorkflowResult.markdown() |
+| 069 | Report quality improvements    | Completed | 2026-05-16: reports/ecosystem_review.py — generate_report_metadata_block(), generate_confidence_note(), _confidence_interpretation() helpers |
+| 070 | Snapshot audit tooling         | Completed | 2026-05-16: tools/snapshot_audit.py — SnapshotAuditor, 6 check categories, AuditReport.markdown(), read-only |
+| 071 | Operational benchmarks         | Completed | 2026-05-16: benchmarks/ — bench_synthesis.py, bench_snapshot_scale.py, run_all.py; synthesis + drift + audit timing |
+| 072 | Stability API routes           | Completed | 2026-05-16: backend/routers/stability.py — 8 endpoints: schema validate, confidence explain, cognition validation, snapshot audit |
+| 073 | Phase 7 tests                  | Completed | 2026-05-16: 138 new tests — snapshot_schema (32), confidence (26), validation (30), query_workflows (30), snapshot_audit (40); 516 total passing |

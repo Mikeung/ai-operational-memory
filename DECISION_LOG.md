@@ -55,3 +55,10 @@
 | 2026-05-16 | ConsolidatedConcern preserves source rec titles | Traceability requirement: every consolidated concern must name all contributing recommendations so operator can trace back to originating evidence |
 | 2026-05-16 | Ecosystem synthesis engine is strictly deterministic | No LLM cognition, no embeddings, no vector search; all theme extraction uses explicit pattern-name intersections and category-set matching |
 | 2026-05-16 | Bounded language enforced in all ecosystem reports | Reports use "appears to", "evidence suggests", "historically associated with"; certainty words (will/causes/proves) prohibited per operational philosophy |
+| 2026-05-16 | Schema version "1.0" established as canonical baseline | SnapshotValidator stabilizes current snapshot structure without redesigning it; optional sections filled by normalize(), not enforced as errors |
+| 2026-05-16 | Confidence = evidence density, NOT probability | ConfidenceNormalizer uses weighted blend of raw score + evidence count + snapshot depth; interpretation bands label strength only; all report notes carry "not a probability of correctness" advisory |
+| 2026-05-16 | Validation warns, never auto-corrects | CognitionValidator detects internal inconsistencies (e.g., degrading health with no themes) and surfaces them to operators; outputs are unchanged |
+| 2026-05-16 | Query workflows are structured inquiry, not chatbot | OperatorQueryWorkflow produces deterministic step-by-step analysis from explicit inputs; no conversational interface, no LLM-generated findings |
+| 2026-05-16 | clean_snapshots excludes info findings | AuditReport.clean_snapshots counts snapshots with no errors or warnings; info-level volume notes do not mark a snapshot as dirty |
+| 2026-05-16 | Benchmarks are standalone scripts, not pytest | benchmarks/ uses perf_counter with 10-run averaging; isolated from test suite to prevent slow CI runs |
+| 2026-05-16 | Stability router groups Phase 7 endpoints | /stability/* prefix avoids polluting existing router prefixes; covers schema, confidence, validation, audit in one focused router |

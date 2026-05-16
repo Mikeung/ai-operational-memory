@@ -325,8 +325,69 @@ def generate_ecosystem_complexity_report(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Public report quality helpers (Task 5 — report quality improvements)
 # ---------------------------------------------------------------------------
+
+def generate_report_metadata_block(
+    *,
+    report_type: str,
+    snapshot_count: int = 0,
+    confidence: float | None = None,
+    evidence_count: int | None = None,
+    generated_at: str | None = None,
+) -> str:
+    """
+    Generate a standardized metadata block for any report type.
+
+    Produces consistent report headers across all ecosystem reports.
+    Confidence is presented as evidence strength, not probability.
+    """
+    now = generated_at or _now()
+    lines = [
+        f"**Report type:** {report_type}",
+        f"**Generated:** {now}",
+        f"**Snapshots analyzed:** {snapshot_count}",
+    ]
+    if confidence is not None:
+        interp = _confidence_interpretation(confidence)
+        lines.append(
+            f"**Evidence confidence:** {confidence:.2f} ({interp}) "
+            f"— reflects signal density, not probability of correctness"
+        )
+    if evidence_count is not None:
+        lines.append(f"**Evidence items:** {evidence_count}")
+    return "\n".join(lines)
+
+
+def generate_confidence_note(confidence: float, evidence_count: int = 0) -> str:
+    """
+    Generate a one-line confidence interpretation note for report footers.
+
+    Uses bounded language — confidence reflects evidence density only.
+    """
+    interp = _confidence_interpretation(confidence)
+    return (
+        f"*Confidence: {confidence:.2f} ({interp}) — "
+        f"based on {evidence_count} supporting signal(s). "
+        f"Confidence reflects evidence density, not probability of correctness.*"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _confidence_interpretation(score: float) -> str:
+    if score >= 0.80:
+        return "strong"
+    if score >= 0.60:
+        return "moderate"
+    if score >= 0.40:
+        return "low"
+    if score >= 0.20:
+        return "very low"
+    return "insufficient"
+
 
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")

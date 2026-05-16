@@ -5,6 +5,7 @@ from backend.health import router as health_router
 from backend.lifecycle import lifespan
 from backend.routers.ecosystem import router as ecosystem_router
 from backend.routers.investigation import router as investigation_router
+from backend.routers.stability import router as stability_router
 from backend.routers.reports import router as reports_router
 from backend.routers.runtime import router as runtime_router
 from backend.routers.scan import router as scan_router
@@ -30,6 +31,7 @@ app.include_router(temporal_router)
 app.include_router(runtime_router)
 app.include_router(investigation_router)
 app.include_router(ecosystem_router)
+app.include_router(stability_router)
 
 
 @app.get("/", tags=["system"])
@@ -86,5 +88,13 @@ def root() -> dict:
             "ecosystem_report_complexity": "GET /ecosystem/report/complexity",
             "ecosystem_digest_weekly": "GET /ecosystem/digest/weekly",
             "ecosystem_digest_strategic": "GET /ecosystem/digest/strategic",
+            "schema_version": "GET /stability/schema/version",
+            "schema_validate_latest": "GET /stability/schema/validate/latest",
+            "schema_validate_batch": "GET /stability/schema/validate/batch",
+            "confidence_explain": "GET /stability/confidence/explain",
+            "validate_synthesis": "GET /stability/validate/synthesis",
+            "validate_synthesis_report": "GET /stability/validate/synthesis/report",
+            "audit_snapshots": "GET /stability/audit/snapshots",
+            "audit_snapshots_report": "GET /stability/audit/snapshots/report",
         },
     }
