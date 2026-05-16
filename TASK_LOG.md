@@ -21,3 +21,8 @@
 | 017 | Topology report (markdown)     | Completed | 2026-05-15: topology_report() in ReportGenerator — components, workflows, cost, recommendations |
 | 018 | Topology persistence           | Completed | 2026-05-15: topology/workflows/cost_observations/recommendations saved in snapshot payload |
 | 019 | Phase 2 tests                  | Completed | 2026-05-15: 30 new tests — topology_builder (16), workflow_inference (9), recommendation_engine (5) |
+| 020 | Domain models                  | Completed | 2026-05-16: topology/domain_models.py — Asset, Relationship, WorkflowPattern, DriftEvent, LLMUsageProfile, RecommendationEvidence |
+| 021 | Observation layer              | Completed | 2026-05-16: cognition/observations.py — typed Observation facts, observations_from_scan() normalizer |
+| 022 | README rewrite                 | Completed | 2026-05-16: Full product-level README — what/why/capabilities/principles/quickstart/endpoints/layout |
+| 023 | Architecture documentation     | Completed | 2026-05-16: docs/ARCHITECTURE.md — layer-by-layer explanation with evidence chain example |
+| 024 | API overview documentation     | Completed | 2026-05-16: docs/API_OVERVIEW.md — all endpoints with purpose and example responses |

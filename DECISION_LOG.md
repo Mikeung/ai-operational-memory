@@ -20,3 +20,7 @@
 | 2026-05-15 | Workflow inference is pattern-only     | No ML — deterministic frozenset + package presence checks; explainable, no model deps |
 | 2026-05-15 | Cost intelligence is heuristic-only    | No billing API access; observations based on structural patterns + known cost behaviors |
 | 2026-05-15 | Recommendations sorted by confidence   | Highest-confidence items shown first; impact used as tiebreaker to prioritize high-risk findings |
+| 2026-05-16 | Domain models as vocabulary layer      | topology/domain_models.py adds explicit semantic vocabulary without replacing graph models; clarifies intent without disrupting working systems |
+| 2026-05-16 | Observation layer as fact boundary     | cognition/observations.py formally separates scanner facts from topology inferences; every inference above this layer must cite observations below it |
+| 2026-05-16 | No folder restructuring in Phase 2.5   | Existing folder layout (scanners/, topology/, memory/, llm_intelligence/) is clear and stable; restructuring would disrupt working imports with no operational benefit |
+| 2026-05-16 | llm_intelligence/analyzer.py retained | Placeholder for Phase 3 LLM runtime analysis; not renamed or removed — Phase 3 will populate it |
