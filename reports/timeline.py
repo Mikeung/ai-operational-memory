@@ -296,6 +296,38 @@ def generate_attention_report_md(attention_dict: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def add_runtime_events_to_timeline(
+    timeline_lines: list[str],
+    runtime_health: dict[str, Any],
+    snapshot_id: int | str,
+    timestamp: str,
+) -> list[str]:
+    """Append runtime health events to a timeline line list.
+
+    Inserts runtime instability signals and resource pressure as timeline
+    entries for the given snapshot. Non-mutating — returns a new list.
+    """
+    lines = list(timeline_lines)
+    overall = runtime_health.get("overall_status", "unknown")
+    if overall in ("healthy", "unknown"):
+        return lines
+
+    time_str = timestamp[11:16] if len(timestamp) >= 16 else ""
+    header = f"### Runtime Event — Snapshot #{snapshot_id}"
+    if time_str:
+        header += f" ({time_str} UTC)"
+    lines.append(header)
+
+    lines.append(f"- Runtime status: **{overall}** (score: {runtime_health.get('health_score', 0.0):.2f})")
+    for sig in runtime_health.get("instability_signals", [])[:3]:
+        lines.append(f"- {sig}")
+    for rp in runtime_health.get("resource_pressure", [])[:2]:
+        lines.append(f"- {rp}")
+    lines.append("")
+
+    return lines
+
+
 def _format_change(change_type: str, value: str) -> str:
     labels = {
         "llm_provider_added": f"LLM provider added: **{value}**",
@@ -311,6 +343,7 @@ def _format_change(change_type: str, value: str) -> str:
         "language_changed": f"Primary language changed: {value}",
         "workflow_type_added": f"Workflow pattern emerged: **{value}**",
         "workflow_type_removed": f"Workflow pattern no longer detected: **{value}**",
+        "runtime_status_changed": f"Runtime status changed: {value}",
     }
     return labels.get(change_type, f"{change_type}: {value}")
 

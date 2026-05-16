@@ -35,3 +35,14 @@
 | 031 | Recommendation model upgrade   | Completed | 2026-05-16: urgency + recurrence_count fields added to Recommendation with defaults |
 | 032 | Temporal API routes            | Completed | 2026-05-16: backend/routers/temporal.py — /temporal/analysis, /timeline, /priority, /attention, /volatility + markdown variants |
 | 033 | Phase 3 tests                  | Completed | 2026-05-16: 36 new tests — temporal_analysis (13), prioritization (14), attention (10); 95 total passing |
+| 034 | Runtime scanner                | Completed | 2026-05-16: scanners/runtime_scanner.py — psutil-based CPU/mem/disk/load/uptime/zombie/failed-services/docker-restart detection |
+| 035 | Runtime health intelligence    | Completed | 2026-05-16: cognition/runtime_health.py — HealthIndicator, RuntimeHealthReport, VPS thresholds, health score, instability signals |
+| 036 | Operational severity model     | Completed | 2026-05-16: cognition/severity.py — SeverityEngine 5-factor weighted scoring, SeverityLevel enum, confidence tracking |
+| 037 | Recurrence detection           | Completed | 2026-05-16: cognition/recurrence.py — RecurrenceEngine detects recurring recommendations, cost warnings, drift, runtime failures |
+| 038 | Runtime + topology fusion      | Completed | 2026-05-16: cognition/runtime_topology.py — RuntimeTopologyFusion, 5 compound correlation detectors, FusedInsight |
+| 039 | Operational digest generation  | Completed | 2026-05-16: reports/digest.py — daily/morning/critical digest generators with severity banners and advisory footers |
+| 040 | Attention guidance — runtime   | Completed | 2026-05-16: cognition/attention.py expanded — runtime_concerns field, _runtime_concerns_from_health, runtime_health param |
+| 041 | Timeline — runtime events      | Completed | 2026-05-16: reports/timeline.py — add_runtime_events_to_timeline(), runtime_status_changed change label |
+| 042 | Runtime API routes             | Completed | 2026-05-16: backend/routers/runtime.py — /runtime/health, /severity, /recurrence, /fused, /digest, /digest/morning, /digest/critical |
+| 043 | Runtime scanner in lifecycle   | Completed | 2026-05-16: backend/lifecycle.py — RuntimeScanner registered in registry; backend/operations.py — runtime_health in scan payload |
+| 044 | Phase 4 tests                  | Completed | 2026-05-16: 71 new tests — runtime_scanner (8), runtime_health (14), severity (13), recurrence (13), digest (23); 166 total passing |

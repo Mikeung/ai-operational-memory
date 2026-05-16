@@ -3,6 +3,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from cognition.runtime_health import RuntimeHealthIntelligence
 from llm_intelligence.cost_intelligence import LLMCostIntelligence
 from llm_intelligence.detector import LLMDetector
 from memory.drift_detector import DriftDetector
@@ -47,6 +48,13 @@ def run_full_scan(
     payload["cost_observations"] = [c.to_dict() for c in cost_observations]
     payload["recommendations"] = [r.to_dict() for r in recommendations]
 
+    # Runtime health intelligence from scanner results
+    runtime_state = (
+        scan_output.get("results", {}).get("runtime_scanner", {})
+    )
+    runtime_health = RuntimeHealthIntelligence().assess(runtime_state)
+    payload["runtime_health"] = runtime_health.to_dict()
+
     previous = snapshot_engine.get_latest("full_scan")
     snapshot_id = snapshot_engine.create_snapshot(payload, "full_scan")
 
@@ -84,6 +92,7 @@ def run_full_scan(
         "snapshot_report": snapshot_report,
         "topology_report": topology_report,
         "drift_report": drift_report,
+        "runtime_health": runtime_health.to_dict(),
         "duration_s": duration,
     }
 
@@ -99,6 +108,7 @@ def run_full_scan(
             "topology_edges": topology.to_dict()["edge_count"],
             "inferred_workflows": len(workflows),
             "recommendations": len(recommendations),
+            "runtime_status": runtime_health.overall_status,
         },
     )
     return result
