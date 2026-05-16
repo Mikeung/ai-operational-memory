@@ -38,3 +38,11 @@
 | 2026-05-16 | Recommendation urgency/recurrence added with defaults | New fields use Python dataclass defaults so existing serialization and tests remain unbroken |
 | 2026-05-16 | Timeline groups by date from created_at prefix | Minimal parsing ([:10] slice) avoids datetime parsing complexity; reliable for SQLite datetime strings |
 | 2026-05-16 | Temporal API defaults to 7-day window | 7 days covers a typical sprint; configurable via query param for longer retrospectives |
+| 2026-05-16 | InvestigationEngine uses dispatch table | Dict mapping kind → handler function; clean extension pattern without if/elif chains; VALID_KINDS frozenset enforced at entry point |
+| 2026-05-16 | ComparisonEngine computes SeverityDelta by running SeverityEngine on both snapshots | Severity not stored in snapshots; recomputed from data fields; ensures consistency with current severity model |
+| 2026-05-16 | ContinuityEngine appended to recurrence.py | Related tracking logic kept in one file; avoids unnecessary file proliferation; RecurrenceEngine and ContinuityEngine share helper functions |
+| 2026-05-16 | PatternLibrary has 9 deterministic signatures | No ML, no embeddings, no vector search; patterns are explicit frozenset intersections on package names, workflow types, provider counts; fully auditable |
+| 2026-05-16 | Bounded language rules enforced by convention | Explanation system prohibits certainty claims (will/causes/proves) via documented rules and bounded qualifiers list; no automated enforcement — relies on code review |
+| 2026-05-16 | EvidenceTree depth hard-capped at 3 | Prevents unbounded tree growth; depth 3 (conclusion → factor → sub-evidence) covers all meaningful operational traces without cognitive overload |
+| 2026-05-16 | Investigation router uses get_by_id() not get_snapshot_by_id() | SnapshotEngine exposes get_by_id(); naming mismatch caught during test integration; fixed before commit |
+| 2026-05-16 | B008 and E741 added to ruff ignore | B008 (FastAPI Depends in defaults) is the accepted FastAPI pattern; E741 (ambiguous l variable names) found in continuity iteration patterns — suppressed globally |

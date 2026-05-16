@@ -246,3 +246,177 @@ def _recurrence_severity(occurrences: int, total_snapshots: int) -> str:
     if ratio >= 0.4 or occurrences >= 3:
         return "moderate"
     return "low"
+
+
+# ---------------------------------------------------------------------------
+# Recommendation continuity tracking
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RecommendationLifespan:
+    """Tracks a recommendation across snapshot history to measure persistence.
+
+    A recommendation that persists across many scans is a chronic operational
+    concern — it has been observed but not resolved.
+    """
+    title: str
+    category: str
+    first_seen: str         # created_at of first snapshot containing it
+    last_seen: str          # created_at of last snapshot containing it
+    occurrence_count: int   # how many snapshots contain it
+    snapshot_ids: list[int]
+    duration_days: float    # calendar time between first and last seen
+    status: str             # "persistent", "recurring", "resolved", "new"
+    severity_hint: str
+    summary_statement: str  # human-readable persistence summary
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "category": self.category,
+            "first_seen": self.first_seen,
+            "last_seen": self.last_seen,
+            "occurrence_count": self.occurrence_count,
+            "snapshot_ids": self.snapshot_ids,
+            "duration_days": round(self.duration_days, 1),
+            "status": self.status,
+            "severity_hint": self.severity_hint,
+            "summary_statement": self.summary_statement,
+        }
+
+
+class ContinuityEngine:
+    """Tracks recommendation lifespan across snapshot history.
+
+    Identifies which recommendations have been observed but not resolved —
+    the operational continuity memory of chronic concerns.
+    """
+
+    def track(self, snapshots: list[dict[str, Any]]) -> list[RecommendationLifespan]:
+        """Compute recommendation lifespans across all provided snapshots.
+
+        snapshots: list of snapshot dicts (any order — engine will sort by created_at).
+        Returns list sorted by occurrence_count descending.
+        """
+        if len(snapshots) < 1:
+            return []
+
+        sorted_snaps = sorted(snapshots, key=lambda s: s.get("created_at", ""))
+        latest_snap = sorted_snaps[-1]
+        latest_snap_id = latest_snap.get("id", 0)
+        total = len(sorted_snaps)
+
+        # Group appearances by title
+        rec_appearances: dict[str, list[tuple[int, str, str]]] = {}
+        # key: title → list of (snap_id, created_at, category)
+
+        for snap in sorted_snaps:
+            snap_id = snap.get("id", 0)
+            created_at = snap.get("created_at", "")
+            recs = snap.get("data", {}).get("recommendations", [])
+            for rec in recs:
+                title = rec.get("title", "").strip()
+                category = rec.get("category", "")
+                if title:
+                    rec_appearances.setdefault(title, []).append((snap_id, created_at, category))
+
+        lifespans: list[RecommendationLifespan] = []
+
+        for title, appearances in rec_appearances.items():
+            count = len(appearances)
+            snap_ids = [a[0] for a in appearances]
+            first_seen = min(a[1] for a in appearances)
+            last_seen = max(a[1] for a in appearances)
+            category = appearances[0][2] if appearances else ""
+
+            duration_days = _duration_days(first_seen, last_seen)
+            status = _continuity_status(count, total, latest_snap_id, snap_ids)
+            severity_hint = _continuity_severity(count, total, duration_days, status)
+            summary = _continuity_summary(title, count, duration_days, status)
+
+            lifespans.append(RecommendationLifespan(
+                title=title,
+                category=category,
+                first_seen=first_seen,
+                last_seen=last_seen,
+                occurrence_count=count,
+                snapshot_ids=snap_ids,
+                duration_days=duration_days,
+                status=status,
+                severity_hint=severity_hint,
+                summary_statement=summary,
+            ))
+
+        lifespans.sort(key=lambda l: (-l.occurrence_count, -l.duration_days))
+
+        logger.info(
+            "Continuity tracking complete",
+            extra={
+                "snapshot_count": total,
+                "tracked_recommendations": len(lifespans),
+                "persistent_count": sum(1 for l in lifespans if l.status == "persistent"),
+            },
+        )
+        return lifespans
+
+
+def _duration_days(first_seen: str, last_seen: str) -> float:
+    try:
+        from datetime import datetime
+        fmt_a = datetime.fromisoformat(first_seen.replace("Z", "+00:00"))
+        fmt_b = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        return abs((fmt_b - fmt_a).total_seconds()) / 86400
+    except Exception:
+        return 0.0
+
+
+def _continuity_status(
+    count: int, total: int, latest_snap_id: int, snap_ids: list[int]
+) -> str:
+    seen_in_latest = latest_snap_id in snap_ids
+    ratio = count / max(total, 1)
+    if not seen_in_latest:
+        return "resolved"
+    if count == 1:
+        return "new"
+    if ratio >= 0.80:
+        return "persistent"
+    return "recurring"
+
+
+def _continuity_severity(
+    count: int, total: int, duration_days: float, status: str
+) -> str:
+    if status == "resolved":
+        return "low"
+    if status == "new":
+        return "low"
+    ratio = count / max(total, 1)
+    if ratio >= 0.80 or duration_days >= 7 or count >= 5:
+        return "high"
+    if ratio >= 0.50 or duration_days >= 3 or count >= 3:
+        return "moderate"
+    return "low"
+
+
+def _continuity_summary(
+    title: str, count: int, duration_days: float, status: str
+) -> str:
+    if status == "resolved":
+        return f"'{title}' resolved — no longer present in latest scan."
+    if status == "new":
+        return f"'{title}' newly detected — first occurrence."
+    if status == "persistent":
+        if duration_days >= 1:
+            return (
+                f"'{title}' persistent across {count} scans "
+                f"({duration_days:.1f} days unresolved)."
+            )
+        return f"'{title}' persistent across {count} scans."
+    # recurring
+    if duration_days >= 1:
+        return (
+            f"'{title}' recurring — appeared {count} times "
+            f"over {duration_days:.1f} days."
+        )
+    return f"'{title}' recurring — appeared {count} times."

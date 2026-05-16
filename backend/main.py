@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from backend.config import settings
 from backend.health import router as health_router
 from backend.lifecycle import lifespan
+from backend.routers.investigation import router as investigation_router
 from backend.routers.reports import router as reports_router
 from backend.routers.runtime import router as runtime_router
 from backend.routers.scan import router as scan_router
@@ -26,6 +27,7 @@ app.include_router(reports_router)
 app.include_router(topology_router)
 app.include_router(temporal_router)
 app.include_router(runtime_router)
+app.include_router(investigation_router)
 
 
 @app.get("/", tags=["system"])
@@ -58,5 +60,17 @@ def root() -> dict:
             "runtime_digest": "GET /runtime/digest",
             "runtime_digest_morning": "GET /runtime/digest/morning",
             "runtime_digest_critical": "GET /runtime/digest/critical",
+            "investigate": "GET /investigation/investigate",
+            "investigate_report": "GET /investigation/investigate/report",
+            "compare": "GET /investigation/compare",
+            "compare_report": "GET /investigation/compare/report",
+            "continuity": "GET /investigation/continuity",
+            "continuity_report": "GET /investigation/continuity/report",
+            "patterns": "GET /investigation/patterns",
+            "explain_severity": "GET /investigation/explain/severity",
+            "explain_recommendation": "GET /investigation/explain/recommendation",
+            "evidence_recommendation": "GET /investigation/evidence/recommendation",
+            "evidence_severity": "GET /investigation/evidence/severity",
+            "persistent_report": "GET /investigation/report/persistent",
         },
     }

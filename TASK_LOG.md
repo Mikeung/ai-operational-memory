@@ -46,3 +46,13 @@
 | 042 | Runtime API routes             | Completed | 2026-05-16: backend/routers/runtime.py — /runtime/health, /severity, /recurrence, /fused, /digest, /digest/morning, /digest/critical |
 | 043 | Runtime scanner in lifecycle   | Completed | 2026-05-16: backend/lifecycle.py — RuntimeScanner registered in registry; backend/operations.py — runtime_health in scan payload |
 | 044 | Phase 4 tests                  | Completed | 2026-05-16: 71 new tests — runtime_scanner (8), runtime_health (14), severity (13), recurrence (13), digest (23); 166 total passing |
+| 045 | Investigation engine           | Completed | 2026-05-16: cognition/investigation.py — InvestigationEngine with 6 deterministic investigation kinds, evidence chains, uncertainty notes |
+| 046 | Comparison engine              | Completed | 2026-05-16: cognition/comparison.py — ComparisonEngine with 6-dimension snapshot delta (topology, workflows, runtime, recs, cost, severity) |
+| 047 | Recommendation continuity      | Completed | 2026-05-16: cognition/recurrence.py expanded — ContinuityEngine, RecommendationLifespan with persistent/recurring/resolved/new status |
+| 048 | Evidence tracing               | Completed | 2026-05-16: reports/evidence_trace.py — EvidenceTracer, EvidenceTree, EvidenceNode, trace_recommendation and trace_severity |
+| 049 | Operational pattern library    | Completed | 2026-05-16: cognition/patterns.py — PatternLibrary with 9 deterministic pattern signatures, no ML/embeddings |
+| 050 | Guided explanation system      | Completed | 2026-05-16: reports/explanations.py — ExplanationGenerator with bounded language rules, 4 explain methods |
+| 051 | Investigation reports          | Completed | 2026-05-16: reports/investigation_report.py — 4 markdown report generators (investigation, comparison, continuity, persistent concerns) |
+| 052 | Investigation API routes       | Completed | 2026-05-16: backend/routers/investigation.py — 12 investigation endpoints under /investigation prefix |
+| 053 | Investigation router wired     | Completed | 2026-05-16: backend/main.py — investigation_router registered, 12 endpoints in root dict |
+| 054 | Phase 5 tests                  | Completed | 2026-05-16: 105 new tests — investigation (17), comparison (12), continuity (13), evidence_trace (15), patterns (19), explanations (29); 271 total passing |
