@@ -39,3 +39,9 @@ class SnapshotEngine:
         self, snapshot_type: str | None = None, limit: int = 20
     ) -> list[dict[str, Any]]:
         return self._store.list_snapshots(snapshot_type, limit)
+
+    def get_temporal_window(
+        self, days: int = 7, max_count: int = 50
+    ) -> list[dict[str, Any]]:
+        """Return full_scan snapshots from the last N days, oldest first."""
+        return self._store.get_snapshots_in_window("full_scan", days, max_count)

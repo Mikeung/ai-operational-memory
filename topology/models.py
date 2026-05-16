@@ -149,6 +149,8 @@ class Recommendation:
     impact: str  # "low", "medium", "high"
     category: str  # "cost", "complexity", "topology", "observability"
     suggested_investigation: str
+    urgency: str = "monitor"  # "immediate", "soon", "monitor", "informational"
+    recurrence_count: int = 0  # times this pattern appeared historically
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -159,4 +161,6 @@ class Recommendation:
             "impact": self.impact,
             "category": self.category,
             "suggested_investigation": self.suggested_investigation,
+            "urgency": self.urgency,
+            "recurrence_count": self.recurrence_count,
         }

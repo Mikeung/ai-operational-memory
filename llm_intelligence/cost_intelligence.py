@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 from typing import Any
 
 from topology.models import CostObservation, InferredWorkflow, NodeType, TopologyGraph
@@ -20,6 +21,29 @@ _MEDIUM_COST_WORKFLOW_TYPES = frozenset({
 
 _PREMIUM_PROVIDERS = frozenset({"openai", "anthropic", "gemini", "google-gemini", "cohere"})
 _SELF_HOSTED_PROVIDERS = frozenset({"ollama", "huggingface"})
+
+_RETRY_PKGS = frozenset({
+    "tenacity", "backoff", "retry", "retrying", "stamina",
+    "aiohttp-retry", "httpx-retry",
+})
+
+
+class CostClass(str, Enum):
+    """Operational cost class — structural estimate, not a billing figure."""
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+    EXTREME = "extreme"
+
+
+def _severity_to_cost_class(severity: str, estimated_tier: str) -> CostClass:
+    if severity == "high":
+        return CostClass.EXTREME
+    if severity == "warning" and estimated_tier == "high":
+        return CostClass.HIGH
+    if severity == "warning":
+        return CostClass.MODERATE
+    return CostClass.LOW
 
 
 class LLMCostIntelligence:
@@ -70,6 +94,18 @@ class LLMCostIntelligence:
             observations.append(obs)
 
         obs = self._observe_premium_only(llm_providers)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_retry_amplification(scan_payload, llm_providers)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_framework_stacking(workflow_engines, llm_providers)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_compound_amplification(workflows, vector_dbs)
         if obs:
             observations.append(obs)
 
@@ -215,8 +251,6 @@ class LLMCostIntelligence:
         )
 
     def _observe_premium_only(self, llm_providers: list[str]) -> CostObservation | None:
-        # Only surface this if there are many premium providers (already covered by multi-provider obs)
-        # and no cheaper alternatives detected
         if len(llm_providers) == 1 and llm_providers[0] in _PREMIUM_PROVIDERS:
             return CostObservation(
                 observation=f"Single premium LLM provider ({llm_providers[0]}) — consider adding a cheaper fallback for non-critical requests.",
@@ -228,3 +262,61 @@ class LLMCostIntelligence:
                 estimated_tier="medium",
             )
         return None
+
+    def _observe_retry_amplification(
+        self, scan_payload: dict[str, Any], llm_providers: list[str]
+    ) -> CostObservation | None:
+        if not llm_providers:
+            return None
+        repo = scan_payload.get("scanner_results", {}).get("results", {}).get("repo_scanner", {})
+        all_deps: set[str] = set()
+        for dep in repo.get("dependencies", []):
+            all_deps.add(dep.lower().replace("_", "-"))
+        matched_retry = sorted(all_deps & _RETRY_PKGS)
+        if not matched_retry:
+            return None
+        return CostObservation(
+            observation="Retry library detected alongside LLM provider — failed LLM calls are likely retried automatically, multiplying token spend on transient errors.",
+            evidence=[
+                f"Retry packages: {', '.join(matched_retry)}",
+                f"LLM providers: {', '.join(llm_providers)}",
+                "Each retried call re-sends the full prompt; exponential backoff can produce 2–8× token amplification on error bursts",
+            ],
+            severity="warning",
+            estimated_tier="high",
+        )
+
+    def _observe_framework_stacking(
+        self, workflow_engines: list[str], llm_providers: list[str]
+    ) -> CostObservation | None:
+        if len(workflow_engines) < 2 or not llm_providers:
+            return None
+        return CostObservation(
+            observation=f"Multiple orchestration frameworks detected ({', '.join(workflow_engines)}) — stacked frameworks each inject their own prompt overhead.",
+            evidence=[
+                f"Orchestration frameworks: {', '.join(workflow_engines)}",
+                f"LLM providers: {', '.join(llm_providers)}",
+                "Each framework layer adds system prompts and scaffolding; stacking two frameworks can double hidden prompt overhead",
+            ],
+            severity="warning",
+            estimated_tier="high",
+        )
+
+    def _observe_compound_amplification(
+        self, workflows: list[InferredWorkflow], vector_dbs: list[str]
+    ) -> CostObservation | None:
+        has_rag = any(w.workflow_type == "retrieval_augmented_generation" for w in workflows)
+        has_agent = any(w.workflow_type == "multi_agent" for w in workflows)
+        if not (has_rag and has_agent):
+            return None
+        return CostObservation(
+            observation="RAG pipeline and multi-agent system detected simultaneously — compound token amplification likely. Each agent turn retrieves context chunks, multiplying token consumption.",
+            evidence=[
+                "RAG pipeline inferred: context chunks injected per query",
+                "Multi-agent system inferred: multiple LLM turns per operation",
+                f"Vector stores: {', '.join(vector_dbs) if vector_dbs else 'detected'}",
+                "Combined pattern can produce 5–20× token usage vs. a single direct LLM call",
+            ],
+            severity="high",
+            estimated_tier="high",
+        )

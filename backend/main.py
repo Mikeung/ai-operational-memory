@@ -6,6 +6,7 @@ from backend.lifecycle import lifespan
 from backend.routers.reports import router as reports_router
 from backend.routers.scan import router as scan_router
 from backend.routers.snapshots import router as snapshots_router
+from backend.routers.temporal import router as temporal_router
 from backend.routers.topology import router as topology_router
 
 app = FastAPI(
@@ -22,6 +23,7 @@ app.include_router(scan_router)
 app.include_router(snapshots_router)
 app.include_router(reports_router)
 app.include_router(topology_router)
+app.include_router(temporal_router)
 
 
 @app.get("/", tags=["system"])
@@ -42,5 +44,10 @@ def root() -> dict:
             "workflows": "GET /topology/workflows",
             "recommendations": "GET /topology/recommendations",
             "topology_report": "GET /topology/report",
+            "temporal_analysis": "GET /temporal/analysis",
+            "temporal_timeline": "GET /temporal/timeline",
+            "temporal_priority": "GET /temporal/priority",
+            "temporal_attention": "GET /temporal/attention",
+            "temporal_volatility": "GET /temporal/volatility",
         },
     }

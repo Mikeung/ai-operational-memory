@@ -26,3 +26,12 @@
 | 022 | README rewrite                 | Completed | 2026-05-16: Full product-level README — what/why/capabilities/principles/quickstart/endpoints/layout |
 | 023 | Architecture documentation     | Completed | 2026-05-16: docs/ARCHITECTURE.md — layer-by-layer explanation with evidence chain example |
 | 024 | API overview documentation     | Completed | 2026-05-16: docs/API_OVERVIEW.md — all endpoints with purpose and example responses |
+| 025 | Snapshot trend utilities       | Completed | 2026-05-16: get_snapshots_in_window() in OperationalStore; get_temporal_window() in SnapshotEngine |
+| 026 | Temporal analysis engine       | Completed | 2026-05-16: cognition/temporal_analysis.py — ChangeEvent, ComponentChurn, TemporalAnalysis, volatility/stability scoring, churn detection |
+| 027 | Operational prioritization     | Completed | 2026-05-16: cognition/prioritization.py — PriorityItem, PrioritizationEngine, explainable score with confidence/impact/volatility/cost factors |
+| 028 | Attention guidance layer       | Completed | 2026-05-16: cognition/attention.py — AttentionGuidance, AttentionReport, noise suppression, category routing |
+| 029 | Operational timeline           | Completed | 2026-05-16: reports/timeline.py — generate_timeline, generate_volatility_report, generate_priority_report, generate_attention_report_md |
+| 030 | LLM economics expansion        | Completed | 2026-05-16: CostClass enum, 3 new observations — retry amplification, framework stacking, compound RAG+agent amplification |
+| 031 | Recommendation model upgrade   | Completed | 2026-05-16: urgency + recurrence_count fields added to Recommendation with defaults |
+| 032 | Temporal API routes            | Completed | 2026-05-16: backend/routers/temporal.py — /temporal/analysis, /timeline, /priority, /attention, /volatility + markdown variants |
+| 033 | Phase 3 tests                  | Completed | 2026-05-16: 36 new tests — temporal_analysis (13), prioritization (14), attention (10); 95 total passing |

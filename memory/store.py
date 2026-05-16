@@ -118,6 +118,21 @@ class OperationalStore:
             ).fetchall()
         return [_deserialize_snapshot(dict(r)) for r in rows]
 
+    def get_snapshots_in_window(
+        self, snapshot_type: str, days: int, max_count: int = 50
+    ) -> list[dict[str, Any]]:
+        """Return snapshots from the last N days, oldest first, for temporal analysis."""
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """SELECT * FROM snapshots
+               WHERE snapshot_type = ?
+                 AND created_at >= datetime('now', ? || ' days')
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            (snapshot_type, f"-{days}", max_count),
+        ).fetchall()
+        return [_deserialize_snapshot(dict(r)) for r in rows]
+
 
 def _deserialize_snapshot(row: dict[str, Any]) -> dict[str, Any]:
     if "data" in row and isinstance(row["data"], str):
