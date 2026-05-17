@@ -40,9 +40,9 @@ class TestAllChecksPassing:
         assert report.long_term_outlook == "stable"
         assert report.passed >= 4
 
-    def test_report_has_5_checks(self):
+    def test_report_has_10_checks(self):
         report = _default_check()
-        assert len(report.checks) == 5
+        assert len(report.checks) == 10
 
     def test_to_dict_serializable(self):
         report = _default_check()

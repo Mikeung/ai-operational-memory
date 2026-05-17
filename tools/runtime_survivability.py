@@ -36,6 +36,17 @@ _STALE_ARCHIVE_DAYS = 180                            # archived project with no 
 _SCHEDULER_STALE_MULTIPLIER = 3                      # 3x interval = stale
 _INGESTION_TREND_WARN_FRACTION = 0.25                # 25% growth in ingestion rate
 
+# New Phase 12 thresholds
+_REPORT_SLOWDOWN_WARN_S = 15.0           # 15s report generation time
+_REPORT_SLOWDOWN_CRIT_S = 45.0           # 45s = unacceptable
+_COGNITION_REGRESSION_WARN_FRACTION = 0.3  # 30% more recommendations than baseline
+_COGNITION_REGRESSION_CRIT_FRACTION = 1.0  # 100% more (double)
+_RETENTION_OVERDUE_WARN_DAYS = 14        # 14 days without retention
+_RETENTION_OVERDUE_CRIT_DAYS = 30        # 30 days = critical
+_SQLITE_FRAG_WARN_FRACTION = 0.3         # 30% waste ratio
+_SQLITE_FRAG_CRIT_FRACTION = 0.5         # 50% waste ratio
+_QUALITY_DEGRADATION_WARN = 0.20         # 0.20 score drop week-over-week
+
 
 # ---------------------------------------------------------------------------
 # Output types
@@ -159,6 +170,15 @@ class RuntimeSurvivabilityChecker:
         archived_project_last_activity_days: dict[str, int],
         events_last_hour_by_project: dict[str, int],
         events_last_hour_7d_ago: dict[str, int] | None,
+        avg_report_latency_ms: float | None = None,
+        avg_report_latency_ms_7d_ago: float | None = None,
+        avg_recs_per_snapshot: float | None = None,
+        avg_recs_per_snapshot_baseline: float | None = None,
+        retention_last_run_days: int | None = None,
+        db_page_count: int | None = None,
+        db_freelist_count: int | None = None,
+        ingestion_quality_score: float | None = None,
+        ingestion_quality_score_7d_ago: float | None = None,
     ) -> SurvivabilityReport:
         """
         Run all survivability checks and return a report.
@@ -175,6 +195,15 @@ class RuntimeSurvivabilityChecker:
         - archived_project_last_activity_days: days since last activity per archived project
         - events_last_hour_by_project: current events/hour per project
         - events_last_hour_7d_ago: events/hour per project one week ago (None if unavailable)
+        - avg_report_latency_ms: average report generation latency in ms (None = unknown)
+        - avg_report_latency_ms_7d_ago: report latency a week ago (None = no baseline)
+        - avg_recs_per_snapshot: current average recommendations per snapshot (None = unknown)
+        - avg_recs_per_snapshot_baseline: baseline average recs per snapshot (None = no baseline)
+        - retention_last_run_days: days since retention was last run (None = unknown)
+        - db_page_count: SQLite page_count PRAGMA result (None = unavailable)
+        - db_freelist_count: SQLite freelist_count PRAGMA result (None = unavailable)
+        - ingestion_quality_score: current ingestion quality score 0.0–1.0 (None = unknown)
+        - ingestion_quality_score_7d_ago: quality score 7 days ago (None = no baseline)
         """
         checks: list[SurvivabilityCheck] = []
 
@@ -190,6 +219,19 @@ class RuntimeSurvivabilityChecker:
         ))
         checks.append(self._check_ingestion_pressure_trend(
             events_last_hour_by_project, events_last_hour_7d_ago
+        ))
+        checks.append(self._check_report_generation_slowdown(
+            avg_report_latency_ms, avg_report_latency_ms_7d_ago
+        ))
+        checks.append(self._check_cognition_runtime_regression(
+            avg_recs_per_snapshot, avg_recs_per_snapshot_baseline
+        ))
+        checks.append(self._check_retention_execution(retention_last_run_days))
+        checks.append(self._check_sqlite_fragmentation(
+            db_page_count, db_freelist_count, db_size_bytes
+        ))
+        checks.append(self._check_ingestion_quality_degradation(
+            ingestion_quality_score, ingestion_quality_score_7d_ago
         ))
 
         passed = sum(1 for c in checks if c.passed)
@@ -513,6 +555,307 @@ class RuntimeSurvivabilityChecker:
             severity="ok",
             message="Ingestion volume appears stable or decreasing.",
             evidence=[f"Active projects: {len(current_rates)}"],
+        )
+
+    def _check_report_generation_slowdown(
+        self,
+        current_ms: float | None,
+        past_ms: float | None,
+    ) -> SurvivabilityCheck:
+        if current_ms is None:
+            return SurvivabilityCheck(
+                name="Report Generation Slowdown",
+                passed=True,
+                severity="ok",
+                message="No report latency data available — cannot assess generation slowdown.",
+            )
+
+        current_s = current_ms / 1000.0
+
+        if current_s >= _REPORT_SLOWDOWN_CRIT_S:
+            evidence = [f"Current average report latency: {current_s:.1f}s"]
+            if past_ms is not None:
+                evidence.append(f"Previous average: {past_ms/1000:.1f}s")
+            return SurvivabilityCheck(
+                name="Report Generation Slowdown",
+                passed=False,
+                severity="critical",
+                message=(
+                    f"Report generation has slowed to {current_s:.1f}s on average — "
+                    "exceeds acceptable threshold. On-demand reports may time out."
+                ),
+                evidence=evidence,
+            )
+        elif current_s >= _REPORT_SLOWDOWN_WARN_S:
+            evidence = [f"Current average report latency: {current_s:.1f}s"]
+            if past_ms is not None:
+                delta = current_ms - past_ms
+                if delta > 0:
+                    evidence.append(f"Increased by {delta/1000:.1f}s vs. prior measurement.")
+            return SurvivabilityCheck(
+                name="Report Generation Slowdown",
+                passed=False,
+                severity="warning",
+                message=(
+                    f"Report generation latency ({current_s:.1f}s) is approaching the acceptable threshold. "
+                    "If data volume grows, reports may slow further."
+                ),
+                evidence=evidence,
+            )
+
+        return SurvivabilityCheck(
+            name="Report Generation Slowdown",
+            passed=True,
+            severity="ok",
+            message=f"Report generation latency ({current_s:.1f}s) is acceptable.",
+            evidence=[f"Latency: {current_ms:.0f}ms"],
+        )
+
+    def _check_cognition_runtime_regression(
+        self,
+        current_avg: float | None,
+        baseline_avg: float | None,
+    ) -> SurvivabilityCheck:
+        if current_avg is None:
+            return SurvivabilityCheck(
+                name="Cognition Runtime Regression",
+                passed=True,
+                severity="ok",
+                message="No recommendation volume data available — cannot assess cognition regression.",
+            )
+
+        if baseline_avg is None or baseline_avg <= 0:
+            return SurvivabilityCheck(
+                name="Cognition Runtime Regression",
+                passed=True,
+                severity="ok",
+                message=(
+                    f"Current recommendation volume: {current_avg:.0f}/snapshot. "
+                    "No baseline available for trend comparison."
+                ),
+            )
+
+        growth = (current_avg - baseline_avg) / baseline_avg
+
+        if growth >= _COGNITION_REGRESSION_CRIT_FRACTION:
+            return SurvivabilityCheck(
+                name="Cognition Runtime Regression",
+                passed=False,
+                severity="critical",
+                message=(
+                    f"Recommendation volume has roughly doubled vs. baseline "
+                    f"({baseline_avg:.0f} → {current_avg:.0f}/snapshot). "
+                    "Cognition pipeline cost may have significantly regressed."
+                ),
+                evidence=[
+                    f"Current: {current_avg:.0f} recs/snapshot",
+                    f"Baseline: {baseline_avg:.0f} recs/snapshot",
+                    f"Growth: +{growth:.0%}",
+                    "High volume may indicate noisy signal sources or missing deduplication.",
+                ],
+            )
+        elif growth >= _COGNITION_REGRESSION_WARN_FRACTION:
+            return SurvivabilityCheck(
+                name="Cognition Runtime Regression",
+                passed=False,
+                severity="warning",
+                message=(
+                    f"Recommendation volume has grown {growth:.0%} vs. baseline "
+                    f"({baseline_avg:.0f} → {current_avg:.0f}/snapshot). "
+                    "Monitor for further increase."
+                ),
+                evidence=[
+                    f"Current: {current_avg:.0f} recs/snapshot",
+                    f"Baseline: {baseline_avg:.0f} recs/snapshot",
+                ],
+            )
+
+        return SurvivabilityCheck(
+            name="Cognition Runtime Regression",
+            passed=True,
+            severity="ok",
+            message=(
+                f"Recommendation volume stable ({current_avg:.0f}/snapshot, "
+                f"+{growth:.0%} vs. baseline)."
+            ),
+        )
+
+    def _check_retention_execution(
+        self, last_run_days: int | None
+    ) -> SurvivabilityCheck:
+        if last_run_days is None:
+            return SurvivabilityCheck(
+                name="Retention Execution Tracking",
+                passed=True,
+                severity="ok",
+                message="Retention execution history not available — cannot assess recency.",
+                evidence=["Pass retention_last_run_days to enable this check."],
+            )
+
+        if last_run_days >= _RETENTION_OVERDUE_CRIT_DAYS:
+            return SurvivabilityCheck(
+                name="Retention Execution Tracking",
+                passed=False,
+                severity="critical",
+                message=(
+                    f"Retention has not been executed in {last_run_days} days. "
+                    "Data may have accumulated well beyond the intended retention window."
+                ),
+                evidence=[
+                    f"Days since last retention run: {last_run_days}",
+                    f"Critical threshold: {_RETENTION_OVERDUE_CRIT_DAYS} days",
+                    "Run: POST /operations/retention/snapshots with dry_run=true to preview impact.",
+                ],
+            )
+        elif last_run_days >= _RETENTION_OVERDUE_WARN_DAYS:
+            return SurvivabilityCheck(
+                name="Retention Execution Tracking",
+                passed=False,
+                severity="warning",
+                message=(
+                    f"Retention has not been run in {last_run_days} days. "
+                    "Consider scheduling a retention run soon."
+                ),
+                evidence=[f"Days since last run: {last_run_days}"],
+            )
+
+        return SurvivabilityCheck(
+            name="Retention Execution Tracking",
+            passed=True,
+            severity="ok",
+            message=f"Retention was last run {last_run_days} day(s) ago — within normal frequency.",
+        )
+
+    def _check_sqlite_fragmentation(
+        self,
+        page_count: int | None,
+        freelist_count: int | None,
+        db_size_bytes: int,
+    ) -> SurvivabilityCheck:
+        if page_count is None or freelist_count is None:
+            return SurvivabilityCheck(
+                name="SQLite Fragmentation",
+                passed=True,
+                severity="ok",
+                message="SQLite page stats not available — fragmentation cannot be assessed.",
+                evidence=["Pass db_page_count and db_freelist_count from PRAGMA to enable this check."],
+            )
+
+        if page_count <= 0:
+            return SurvivabilityCheck(
+                name="SQLite Fragmentation",
+                passed=True,
+                severity="ok",
+                message="Database appears empty — no fragmentation to assess.",
+            )
+
+        frag_ratio = freelist_count / page_count
+        size_mb = db_size_bytes / (1024 * 1024)
+
+        if frag_ratio >= _SQLITE_FRAG_CRIT_FRACTION:
+            return SurvivabilityCheck(
+                name="SQLite Fragmentation",
+                passed=False,
+                severity="critical",
+                message=(
+                    f"SQLite freelist ratio is {frag_ratio:.0%} ({freelist_count:,} / {page_count:,} pages). "
+                    "Significant wasted space — VACUUM is strongly recommended."
+                ),
+                evidence=[
+                    f"Page count: {page_count:,}",
+                    f"Freelist pages: {freelist_count:,} ({frag_ratio:.0%} wasted)",
+                    f"DB size: {size_mb:.1f} MB",
+                    "VACUUM reclaims freelist pages and reduces file size.",
+                ],
+            )
+        elif frag_ratio >= _SQLITE_FRAG_WARN_FRACTION:
+            return SurvivabilityCheck(
+                name="SQLite Fragmentation",
+                passed=False,
+                severity="warning",
+                message=(
+                    f"SQLite freelist ratio is {frag_ratio:.0%} ({freelist_count:,} / {page_count:,} pages). "
+                    "Consider running VACUUM after next retention run."
+                ),
+                evidence=[
+                    f"Freelist pages: {freelist_count:,} ({frag_ratio:.0%} wasted)",
+                ],
+            )
+
+        return SurvivabilityCheck(
+            name="SQLite Fragmentation",
+            passed=True,
+            severity="ok",
+            message=(
+                f"SQLite fragmentation is acceptable ({frag_ratio:.0%} freelist ratio)."
+            ),
+            evidence=[f"Freelist: {freelist_count:,} / {page_count:,} pages"],
+        )
+
+    def _check_ingestion_quality_degradation(
+        self,
+        current_score: float | None,
+        past_score: float | None,
+    ) -> SurvivabilityCheck:
+        if current_score is None:
+            return SurvivabilityCheck(
+                name="Ingestion Quality Degradation",
+                passed=True,
+                severity="ok",
+                message="No ingestion quality score available — cannot assess degradation trend.",
+            )
+
+        if past_score is None:
+            return SurvivabilityCheck(
+                name="Ingestion Quality Degradation",
+                passed=True,
+                severity="ok",
+                message=(
+                    f"Current ingestion quality score: {current_score:.2f}. "
+                    "No historical baseline to compare against."
+                ),
+            )
+
+        drop = past_score - current_score
+
+        if drop >= _QUALITY_DEGRADATION_WARN:
+            severity = "critical" if drop >= 0.40 else "warning"
+            return SurvivabilityCheck(
+                name="Ingestion Quality Degradation",
+                passed=False,
+                severity=severity,
+                message=(
+                    f"Ingestion quality score has dropped by {drop:.2f} "
+                    f"({past_score:.2f} → {current_score:.2f}). "
+                    "Event data completeness may have regressed — review integration configuration."
+                ),
+                evidence=[
+                    f"Current score: {current_score:.2f}",
+                    f"Previous score: {past_score:.2f}",
+                    f"Drop: {drop:.2f}",
+                    "A quality drop often indicates a broken integration or missing metadata fields.",
+                ],
+            )
+
+        if current_score < past_score:
+            return SurvivabilityCheck(
+                name="Ingestion Quality Degradation",
+                passed=True,
+                severity="ok",
+                message=(
+                    f"Ingestion quality score is slightly lower ({past_score:.2f} → {current_score:.2f}), "
+                    "but within normal variation."
+                ),
+            )
+
+        return SurvivabilityCheck(
+            name="Ingestion Quality Degradation",
+            passed=True,
+            severity="ok",
+            message=(
+                f"Ingestion quality score stable or improving "
+                f"({past_score:.2f} → {current_score:.2f})."
+            ),
         )
 
     # -----------------------------------------------------------------------

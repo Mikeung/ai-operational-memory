@@ -192,23 +192,29 @@ class LLMEventStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [_deserialize_row(dict(r)) for r in rows]
 
-    def count_events(self, provider: str | None = None, workflow: str | None = None) -> int:
+    def count_events(
+        self,
+        provider: str | None = None,
+        workflow: str | None = None,
+        project_id: str | None = None,
+    ) -> int:
+        """Count events with optional provider, workflow, and project_id filters."""
         assert self._conn is not None
-        if provider and workflow:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM llm_events WHERE provider = ? AND workflow = ?",
-                (provider, workflow),
-            ).fetchone()
-        elif provider:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM llm_events WHERE provider = ?", (provider,)
-            ).fetchone()
-        elif workflow:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM llm_events WHERE workflow = ?", (workflow,)
-            ).fetchone()
-        else:
-            row = self._conn.execute("SELECT COUNT(*) FROM llm_events").fetchone()
+        conditions = []
+        params: list[str] = []
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if workflow:
+            conditions.append("workflow = ?")
+            params.append(workflow)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        row = self._conn.execute(
+            f"SELECT COUNT(*) FROM llm_events {where}", params
+        ).fetchone()
         return int(row[0]) if row else 0
 
     # -----------------------------------------------------------------------
@@ -513,6 +519,93 @@ class LLMEventStore:
             "SELECT DISTINCT workflow FROM llm_events ORDER BY workflow"
         ).fetchall()
         return [r[0] for r in rows]
+
+    # -----------------------------------------------------------------------
+    # Quality scoring helpers
+    # -----------------------------------------------------------------------
+
+    def get_provider_stats(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """
+        Return per-provider aggregates in the format expected by IngestionQualityScorer.
+
+        Returns: list of {provider, total_events, avg_prompt_tokens,
+                          avg_completion_tokens, avg_latency_ms, error_count}
+        """
+        assert self._conn is not None
+        where = "WHERE project_id = ?" if project_id else ""
+        params = (project_id,) if project_id else ()
+        sql = f"""
+            SELECT
+                provider,
+                COUNT(*)                                 AS total_events,
+                AVG(prompt_tokens)                       AS avg_prompt_tokens,
+                AVG(completion_tokens)                   AS avg_completion_tokens,
+                AVG(latency_ms)                          AS avg_latency_ms,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS error_count
+            FROM llm_events
+            {where}
+            GROUP BY provider
+            ORDER BY total_events DESC
+        """
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_workflow_stats(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """
+        Return per-workflow aggregates in the format expected by IngestionQualityScorer.
+
+        Returns: list of {workflow, total_events, avg_prompt_tokens,
+                          avg_completion_tokens, error_count}
+        """
+        assert self._conn is not None
+        where = "WHERE project_id = ?" if project_id else ""
+        params = (project_id,) if project_id else ()
+        sql = f"""
+            SELECT
+                workflow,
+                COUNT(*)                                 AS total_events,
+                AVG(prompt_tokens)                       AS avg_prompt_tokens,
+                AVG(completion_tokens)                   AS avg_completion_tokens,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS error_count
+            FROM llm_events
+            {where}
+            GROUP BY workflow
+            ORDER BY total_events DESC
+        """
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_events_with_metadata(self, project_id: str | None = None) -> int:
+        """Count events that have non-empty metadata (beyond '{}')."""
+        assert self._conn is not None
+        where = "AND project_id = ?" if project_id else ""
+        params = (project_id,) if project_id else ()
+        row = self._conn.execute(
+            f"SELECT COUNT(*) FROM llm_events WHERE metadata != '{{}}' AND metadata != '' {where}",
+            params,
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def count_events_with_error_type(self, project_id: str | None = None) -> int:
+        """Count failure events that have a non-null error_type field."""
+        assert self._conn is not None
+        where = "AND project_id = ?" if project_id else ""
+        params = (project_id,) if project_id else ()
+        row = self._conn.execute(
+            f"SELECT COUNT(*) FROM llm_events WHERE success = 0 AND error_type IS NOT NULL {where}",
+            params,
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def count_failed_events(self, project_id: str | None = None) -> int:
+        """Count events where success = 0."""
+        assert self._conn is not None
+        where = "AND project_id = ?" if project_id else ""
+        params = (project_id,) if project_id else ()
+        row = self._conn.execute(
+            f"SELECT COUNT(*) FROM llm_events WHERE success = 0 {where}", params
+        ).fetchone()
+        return int(row[0]) if row else 0
 
 
 # ---------------------------------------------------------------------------
