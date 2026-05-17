@@ -480,3 +480,151 @@ class LLMEventRetentionEngine:
                 f"Total deleted: {deleted_age + deleted_count}."
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 13B: Retention efficiency scoring
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RetentionEfficiencyScore:
+    """
+    Advisory score for how well a retention policy fits the current dataset.
+
+    score 0.0–1.0: 1.0 = well-calibrated, 0.0 = severely mis-calibrated.
+    Bands:
+      optimal    (>0.75)  — deletion rate in healthy 5–30% range
+      adequate   (0.50–0.75) — above ideal but not alarming
+      lenient    (<0.50, low deletion) — rarely pruning; policy may be too permissive
+      aggressive (<0.50, high deletion) — pruning too much; history may be lost
+    """
+
+    score: float
+    band: str        # "optimal" | "adequate" | "lenient" | "aggressive"
+    total_snapshots: int
+    eligible_for_deletion: int
+    deletion_rate: float
+    policy_days: int
+    policy_max_count: int
+    observations: list[str]
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "score": round(self.score, 3),
+            "band": self.band,
+            "total_snapshots": self.total_snapshots,
+            "eligible_for_deletion": self.eligible_for_deletion,
+            "deletion_rate": round(self.deletion_rate, 3),
+            "deletion_percent": round(self.deletion_rate * 100, 1),
+            "policy_days": self.policy_days,
+            "policy_max_count": self.policy_max_count,
+            "observations": self.observations,
+            "generated_at": self.generated_at,
+            "advisory": (
+                "Efficiency scoring is advisory. "
+                "Policy changes require operator decision."
+            ),
+        }
+
+
+# Healthy deletion-rate range thresholds
+_EFFICIENCY_IDEAL_LOW = 0.05
+_EFFICIENCY_IDEAL_HIGH = 0.30
+_EFFICIENCY_AGGRESSIVE = 0.50
+
+
+def score_retention_efficiency(plan: RetentionPlan) -> RetentionEfficiencyScore:
+    """
+    Score how well a snapshot retention plan's policy fits the data.
+
+    A plan that consistently marks 5–30% of snapshots for deletion is
+    considered well-calibrated. Outside that range the policy is either
+    too lenient (rarely pruning) or too aggressive (pruning too much).
+    """
+    total = plan.total_snapshots
+    eligible = plan.deletion_count
+
+    if total == 0:
+        return RetentionEfficiencyScore(
+            score=1.0,
+            band="optimal",
+            total_snapshots=0,
+            eligible_for_deletion=0,
+            deletion_rate=0.0,
+            policy_days=plan.policy.retention_days,
+            policy_max_count=plan.policy.max_snapshot_count,
+            observations=[
+                "No snapshots in dataset — retention policy has nothing to evaluate."
+            ],
+        )
+
+    deletion_rate = eligible / total
+    observations: list[str] = []
+
+    if deletion_rate < _EFFICIENCY_IDEAL_LOW:
+        band = "lenient"
+        # Score decays toward 0.40 as deletion_rate → 0
+        decay = ((_EFFICIENCY_IDEAL_LOW - deletion_rate) / _EFFICIENCY_IDEAL_LOW) * 0.35
+        score = max(0.40, 0.75 - decay)
+        observations.append(
+            f"Retention policy appears lenient: only {deletion_rate:.1%} of snapshots "
+            f"({eligible}/{total}) are eligible for deletion."
+        )
+        observations.append(
+            f"Consider reducing retention_days (currently {plan.policy.retention_days}) "
+            "to prune data more actively."
+        )
+    elif deletion_rate > _EFFICIENCY_AGGRESSIVE:
+        band = "aggressive"
+        overage = (deletion_rate - _EFFICIENCY_AGGRESSIVE) / (1.0 - _EFFICIENCY_AGGRESSIVE)
+        score = max(0.30, 0.75 - overage * 0.45)
+        observations.append(
+            f"Retention policy appears aggressive: {deletion_rate:.1%} of snapshots "
+            f"({eligible}/{total}) are eligible for deletion."
+        )
+        observations.append(
+            "Consider increasing retention_days to preserve more operational history."
+        )
+    elif deletion_rate > _EFFICIENCY_IDEAL_HIGH:
+        band = "adequate"
+        overage = (deletion_rate - _EFFICIENCY_IDEAL_HIGH) / (
+            _EFFICIENCY_AGGRESSIVE - _EFFICIENCY_IDEAL_HIGH
+        )
+        score = 0.75 - overage * 0.15
+        observations.append(
+            f"Retention rate {deletion_rate:.1%} is above the ideal range "
+            "but still acceptable."
+        )
+    else:
+        band = "optimal"
+        center = (_EFFICIENCY_IDEAL_LOW + _EFFICIENCY_IDEAL_HIGH) / 2
+        half_range = (_EFFICIENCY_IDEAL_HIGH - _EFFICIENCY_IDEAL_LOW) / 2
+        distance = abs(deletion_rate - center) / max(half_range, 1e-9)
+        score = 1.0 - distance * 0.15
+        observations.append(
+            f"Retention policy appears well-calibrated: {deletion_rate:.1%} of "
+            "snapshots eligible for deletion is within the healthy range."
+        )
+
+    score = max(0.0, min(1.0, score))
+    observations.append(
+        f"Policy: retention_days={plan.policy.retention_days}, "
+        f"max_snapshot_count={plan.policy.max_snapshot_count}, "
+        f"min_keep_count={plan.policy.min_keep_count}."
+    )
+
+    logger.debug(
+        "Retention efficiency scored",
+        extra={"score": score, "band": band, "deletion_rate": deletion_rate},
+    )
+    return RetentionEfficiencyScore(
+        score=score,
+        band=band,
+        total_snapshots=total,
+        eligible_for_deletion=eligible,
+        deletion_rate=deletion_rate,
+        policy_days=plan.policy.retention_days,
+        policy_max_count=plan.policy.max_snapshot_count,
+        observations=observations,
+    )

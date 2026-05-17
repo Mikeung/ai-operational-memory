@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import shutil
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -419,6 +419,432 @@ def _project_storage_observations(
             "consider per-project retention to balance storage."
         )
     return obs
+
+
+# ---------------------------------------------------------------------------
+# Phase 13B: Extended hygiene analysis
+# ---------------------------------------------------------------------------
+
+_OVERSIZED_TOKEN_DEFAULT = 10_000   # tokens per snapshot above which evidence is flagged
+_COLD_STORAGE_DAYS_DEFAULT = 90     # snapshots older than this are cold candidates
+_ARCHIVE_WARN_FRACTION = 0.80       # 80% of max_count → warning
+_ARCHIVE_CRITICAL_FRACTION = 0.95   # 95% of max_count → critical
+
+
+@dataclass
+class OversizedEvidenceReport:
+    """Report on snapshots with disproportionately large evidence blobs."""
+
+    oversized_count: int
+    total_assessed: int
+    token_threshold: int
+    oversized_snapshot_ids: list[int]
+    estimated_excess_tokens: int
+    observations: list[str]
+
+    @property
+    def has_oversized(self) -> bool:
+        return self.oversized_count > 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "oversized_count": self.oversized_count,
+            "total_assessed": self.total_assessed,
+            "token_threshold": self.token_threshold,
+            "oversized_snapshot_ids": self.oversized_snapshot_ids,
+            "estimated_excess_tokens": self.estimated_excess_tokens,
+            "has_oversized": self.has_oversized,
+            "observations": self.observations,
+            "advisory": "Evidence trimming requires operator review of affected snapshots.",
+        }
+
+
+@dataclass
+class ColdStorageCandidate:
+    """A snapshot identified as a cold-storage candidate."""
+
+    snapshot_id: int
+    project_id: str
+    created_at: str
+    age_days: float
+    reason: str
+
+
+@dataclass
+class ColdStorageReport:
+    """Report on snapshots suitable for cold-storage or archiving."""
+
+    candidate_count: int
+    total_assessed: int
+    cold_after_days: int
+    candidates: list[ColdStorageCandidate]
+    observations: list[str]
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def has_candidates(self) -> bool:
+        return self.candidate_count > 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "candidate_count": self.candidate_count,
+            "total_assessed": self.total_assessed,
+            "cold_after_days": self.cold_after_days,
+            "candidates": [
+                {
+                    "snapshot_id": c.snapshot_id,
+                    "project_id": c.project_id,
+                    "created_at": c.created_at,
+                    "age_days": round(c.age_days, 1),
+                    "reason": c.reason,
+                }
+                for c in self.candidates
+            ],
+            "has_candidates": self.has_candidates,
+            "observations": self.observations,
+            "generated_at": self.generated_at,
+            "advisory": "Cold-storage archiving requires explicit operator action.",
+        }
+
+
+@dataclass
+class SnapshotDensityReport:
+    """Temporal distribution analysis of snapshot creation."""
+
+    total_snapshots: int
+    window_days: int
+    avg_per_day: float
+    peak_day: str | None
+    peak_day_count: int
+    sparse_periods: list[str]
+    burst_periods: list[str]
+    observations: list[str]
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "total_snapshots": self.total_snapshots,
+            "window_days": self.window_days,
+            "avg_per_day": round(self.avg_per_day, 2),
+            "peak_day": self.peak_day,
+            "peak_day_count": self.peak_day_count,
+            "sparse_periods": self.sparse_periods,
+            "burst_periods": self.burst_periods,
+            "observations": self.observations,
+            "generated_at": self.generated_at,
+        }
+
+
+@dataclass
+class ArchivePressureIndicator:
+    """Forecast of when snapshot archive pressure will reach advisory thresholds."""
+
+    current_count: int
+    max_count: int
+    snapshots_per_day: float
+    days_to_warning: float | None    # None if already at or beyond warning
+    days_to_critical: float | None   # None if already at or beyond critical
+    current_fraction: float
+    pressure_level: str    # "ok" | "warning" | "critical"
+    observations: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "current_count": self.current_count,
+            "max_count": self.max_count,
+            "current_fraction": round(self.current_fraction, 3),
+            "current_percent": round(self.current_fraction * 100, 1),
+            "snapshots_per_day": round(self.snapshots_per_day, 2),
+            "days_to_warning": (
+                round(self.days_to_warning, 1) if self.days_to_warning is not None else None
+            ),
+            "days_to_critical": (
+                round(self.days_to_critical, 1) if self.days_to_critical is not None else None
+            ),
+            "pressure_level": self.pressure_level,
+            "observations": self.observations,
+        }
+
+
+# Methods are added directly to StorageHygieneEngine below as a mixin-style patch
+# via subclassing is not needed — they are appended to the class body in the module.
+
+def _find_oversized_snapshots(
+    evidence_stats: list[dict[str, Any]],
+    token_threshold: int = _OVERSIZED_TOKEN_DEFAULT,
+) -> OversizedEvidenceReport:
+    """
+    Identify snapshots with disproportionately large evidence blobs.
+
+    evidence_stats: list of dicts with {snapshot_id, total_tokens}
+    """
+    oversized_ids: list[int] = []
+    excess_tokens = 0
+
+    for row in evidence_stats:
+        tokens = int(row.get("total_tokens", 0) or 0)
+        if tokens > token_threshold:
+            oversized_ids.append(int(row.get("snapshot_id", 0)))
+            excess_tokens += tokens - token_threshold
+
+    total = len(evidence_stats)
+    count = len(oversized_ids)
+    observations = []
+
+    if count == 0:
+        observations.append(
+            f"No oversized evidence blobs detected "
+            f"(threshold: {token_threshold:,} tokens/snapshot)."
+        )
+    else:
+        observations.append(
+            f"{count}/{total} snapshot(s) exceed the "
+            f"{token_threshold:,}-token evidence threshold."
+        )
+        observations.append(
+            f"Estimated excess tokens: {excess_tokens:,}. "
+            "Evidence compression may reduce storage."
+        )
+
+    return OversizedEvidenceReport(
+        oversized_count=count,
+        total_assessed=total,
+        token_threshold=token_threshold,
+        oversized_snapshot_ids=oversized_ids,
+        estimated_excess_tokens=excess_tokens,
+        observations=observations,
+    )
+
+
+def _find_cold_storage_candidates(
+    snapshots: list[dict[str, Any]],
+    cold_after_days: int = _COLD_STORAGE_DAYS_DEFAULT,
+) -> ColdStorageReport:
+    """
+    Identify snapshots old enough to be considered cold-storage candidates.
+
+    snapshots: list of dicts with {id, project_id, created_at}
+    """
+    now = datetime.now(UTC)
+    candidates: list[ColdStorageCandidate] = []
+
+    for snap in snapshots:
+        snap_id = snap.get("id")
+        if snap_id is None:
+            continue
+        ts_str = snap.get("created_at", "")
+        try:
+            ts = datetime.fromisoformat(str(ts_str).replace(" ", "T"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            age_days = (now - ts).total_seconds() / 86400
+            if age_days >= cold_after_days:
+                candidates.append(ColdStorageCandidate(
+                    snapshot_id=int(snap_id),
+                    project_id=str(snap.get("project_id", "")),
+                    created_at=ts_str,
+                    age_days=age_days,
+                    reason=(
+                        f"age_days={age_days:.0f} >= "
+                        f"cold_after_days={cold_after_days}"
+                    ),
+                ))
+        except (ValueError, AttributeError, TypeError):
+            pass
+
+    total = len(snapshots)
+    count = len(candidates)
+    observations = []
+
+    if count == 0:
+        observations.append(
+            f"No cold-storage candidates found "
+            f"(threshold: {cold_after_days} days)."
+        )
+    else:
+        observations.append(
+            f"{count}/{total} snapshot(s) are older than {cold_after_days} days "
+            "and may be suitable for archiving or cold storage."
+        )
+        oldest = max(candidates, key=lambda c: c.age_days)
+        observations.append(
+            f"Oldest candidate is ~{oldest.age_days:.0f} days old "
+            f"(project: {oldest.project_id})."
+        )
+
+    return ColdStorageReport(
+        candidate_count=count,
+        total_assessed=total,
+        cold_after_days=cold_after_days,
+        candidates=candidates,
+        observations=observations,
+    )
+
+
+def _analyze_snapshot_density(
+    snapshots: list[dict[str, Any]],
+    window_days: int = 30,
+) -> SnapshotDensityReport:
+    """
+    Analyze temporal distribution of snapshot creation within a window.
+
+    snapshots: list of dicts with {created_at}
+    """
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=window_days)
+    day_counts: dict[str, int] = {}
+
+    for snap in snapshots:
+        ts_str = snap.get("created_at", "")
+        try:
+            ts = datetime.fromisoformat(str(ts_str).replace(" ", "T"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            if ts >= cutoff:
+                day_key = ts.date().isoformat()
+                day_counts[day_key] = day_counts.get(day_key, 0) + 1
+        except (ValueError, AttributeError, TypeError):
+            pass
+
+    total = sum(day_counts.values())
+    avg_per_day = total / max(window_days, 1)
+
+    peak_day = max(day_counts, key=lambda d: day_counts[d]) if day_counts else None
+    peak_count = day_counts[peak_day] if peak_day else 0
+
+    burst_threshold = max(avg_per_day * 3, 1)
+    burst_periods = [
+        f"{day} ({cnt} snapshots)"
+        for day, cnt in sorted(day_counts.items())
+        if cnt >= burst_threshold and avg_per_day > 0
+    ]
+
+    # Sparse: gaps of ≥3 consecutive days with zero snapshots within the window
+    sparse_periods: list[str] = []
+    if day_counts and window_days >= 7:
+        current_date = cutoff.date()
+        end_date = now.date()
+        gap_start: date | None = None
+        while current_date <= end_date:
+            if day_counts.get(current_date.isoformat(), 0) == 0:
+                if gap_start is None:
+                    gap_start = current_date
+            else:
+                if gap_start and (current_date - gap_start).days >= 3:
+                    sparse_periods.append(
+                        f"{gap_start.isoformat()} to "
+                        f"{(current_date - timedelta(days=1)).isoformat()}"
+                    )
+                gap_start = None
+            current_date += timedelta(days=1)
+
+    observations = []
+    if total == 0:
+        observations.append(
+            f"No snapshots found within the last {window_days} days."
+        )
+    else:
+        observations.append(
+            f"{total} snapshot(s) in the last {window_days} days "
+            f"(avg {avg_per_day:.1f}/day)."
+        )
+    if peak_day:
+        observations.append(f"Peak day: {peak_day} with {peak_count} snapshots.")
+    if burst_periods:
+        observations.append(
+            f"Burst activity detected on {len(burst_periods)} day(s)."
+        )
+    if sparse_periods:
+        observations.append(
+            f"Sparse coverage: {len(sparse_periods)} gap period(s) of "
+            "3+ days with no snapshots."
+        )
+
+    return SnapshotDensityReport(
+        total_snapshots=total,
+        window_days=window_days,
+        avg_per_day=avg_per_day,
+        peak_day=peak_day,
+        peak_day_count=peak_count,
+        sparse_periods=sparse_periods,
+        burst_periods=burst_periods,
+        observations=observations,
+    )
+
+
+def _assess_archive_pressure(
+    snapshot_count: int,
+    max_count: int,
+    snapshots_per_day: float = 0.0,
+) -> ArchivePressureIndicator:
+    """
+    Forecast when snapshot archive pressure will reach advisory thresholds.
+
+    snapshot_count: current total
+    max_count: RetentionPolicy.max_snapshot_count
+    snapshots_per_day: recent growth rate (0 = no forecast possible)
+    """
+    fraction = snapshot_count / max(max_count, 1)
+
+    if fraction >= _ARCHIVE_CRITICAL_FRACTION:
+        pressure = "critical"
+    elif fraction >= _ARCHIVE_WARN_FRACTION:
+        pressure = "warning"
+    else:
+        pressure = "ok"
+
+    days_to_warning: float | None = None
+    days_to_critical: float | None = None
+
+    if snapshots_per_day > 0 and max_count > 0:
+        warn_threshold = int(max_count * _ARCHIVE_WARN_FRACTION)
+        critical_threshold = int(max_count * _ARCHIVE_CRITICAL_FRACTION)
+        if snapshot_count < warn_threshold:
+            days_to_warning = (warn_threshold - snapshot_count) / snapshots_per_day
+        if snapshot_count < critical_threshold:
+            days_to_critical = (critical_threshold - snapshot_count) / snapshots_per_day
+
+    observations = [
+        f"Snapshot count: {snapshot_count:,}/{max_count:,} ({fraction:.0%}). "
+        f"Pressure: {pressure}."
+    ]
+    if days_to_warning is not None and pressure == "ok":
+        observations.append(
+            f"At current rate (~{snapshots_per_day:.1f}/day), "
+            f"warning threshold in ~{days_to_warning:.0f} days."
+        )
+    if days_to_critical is not None and pressure in ("ok", "warning"):
+        observations.append(
+            f"Critical threshold projected in ~{days_to_critical:.0f} days."
+        )
+    if pressure == "critical":
+        observations.append(
+            "Archive pressure is CRITICAL. "
+            "Retention policy or archiving should be reviewed immediately."
+        )
+    elif pressure == "warning":
+        observations.append(
+            "Archive pressure is at WARNING level. "
+            "Consider scheduling retention soon."
+        )
+
+    return ArchivePressureIndicator(
+        current_count=snapshot_count,
+        max_count=max_count,
+        snapshots_per_day=snapshots_per_day,
+        days_to_warning=days_to_warning,
+        days_to_critical=days_to_critical,
+        current_fraction=fraction,
+        pressure_level=pressure,
+        observations=observations,
+    )
+
+
+# Public aliases for the new analysis functions
+find_oversized_snapshots = _find_oversized_snapshots
+find_cold_storage_candidates = _find_cold_storage_candidates
+analyze_snapshot_density = _analyze_snapshot_density
+assess_archive_pressure = _assess_archive_pressure
 
 
 def _concentration_observations(
