@@ -95,6 +95,91 @@ class CompactRecommendationSet:
         }
 
 
+@dataclass
+class OperatorFatigueReport:
+    """
+    Measures how much of the current recommendation set represents
+    repeated, stale, or low-quality signals that may be fatiguing operators.
+
+    A high fatigue score suggests that most signals have already been seen and
+    that the operator is not getting new actionable information.
+
+    Advisory only. Fatigue score does not trigger automatic suppression.
+    """
+    fatigue_score: float              # 0.0 (no fatigue) → 1.0 (all signals stale/repeated)
+    fatigue_band: str                 # "low" | "moderate" | "high"
+    total_signals: int
+    stale_signal_count: int           # signals with recurrence >= stale threshold
+    weak_signal_count: int            # signals with weak evidence
+    suppression_candidates: int       # signals below quality threshold
+    dominant_category: str            # most common category, or ""
+    saturation_detected: bool
+    observations: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "fatigue_score": round(self.fatigue_score, 3),
+            "fatigue_band": self.fatigue_band,
+            "total_signals": self.total_signals,
+            "stale_signal_count": self.stale_signal_count,
+            "weak_signal_count": self.weak_signal_count,
+            "suppression_candidates": self.suppression_candidates,
+            "dominant_category": self.dominant_category,
+            "saturation_detected": self.saturation_detected,
+            "observations": self.observations,
+            "advisory": (
+                "Fatigue score is advisory. It reflects signal repetition patterns, "
+                "not the operational importance of any individual signal."
+            ),
+        }
+
+    def markdown(self) -> str:
+        band_icon = {"low": "✓", "moderate": "⚠", "high": "✗"}.get(
+            self.fatigue_band, "•"
+        )
+        lines = [
+            f"### {band_icon} Operator Fatigue: {self.fatigue_band.upper()} "
+            f"({self.fatigue_score:.0%})",
+            "",
+            f"- Total signals assessed: {self.total_signals}",
+            f"- Stale/recurring signals: {self.stale_signal_count}",
+            f"- Weak evidence signals: {self.weak_signal_count}",
+            f"- Suppression candidates: {self.suppression_candidates}",
+        ]
+        if self.saturation_detected and self.dominant_category:
+            lines.append(f"- Dominant category: {self.dominant_category} (saturation detected)")
+        if self.observations:
+            lines.append("")
+            for o in self.observations:
+                lines.append(f"> {o}")
+        lines += ["", "_Advisory only. Human review required before suppressing any signal._"]
+        return "\n".join(lines)
+
+
+@dataclass
+class QualityFilteredSet:
+    """
+    Recommendation set after signal quality filtering.
+
+    Kept signals passed the quality threshold.
+    Suppressed signals are retained here (never deleted) with suppression annotations.
+    """
+    kept: list[dict[str, Any]]
+    suppressed: list[dict[str, Any]]
+    total_input: int
+    quality_filter_ratio: float       # fraction suppressed
+    fatigue_report: OperatorFatigueReport
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kept": self.kept,
+            "suppressed": self.suppressed,
+            "total_input": self.total_input,
+            "quality_filter_ratio": round(self.quality_filter_ratio, 3),
+            "fatigue_report": self.fatigue_report.to_dict(),
+        }
+
+
 # -----------------------------------------------------------------------
 # Refinement engine
 # -----------------------------------------------------------------------
@@ -286,6 +371,171 @@ class ReportRefinementEngine:
         return (
             f"Deduplication: {suppressed} of {input_count} signals "
             f"({dedup_ratio:.0%}) appear to be near-duplicates and were collapsed."
+        )
+
+    def score_operator_fatigue(
+        self,
+        recommendations: list[dict[str, Any]],
+        *,
+        recurrence_by_title: dict[str, int] | None = None,
+    ) -> OperatorFatigueReport:
+        """
+        Compute an operator fatigue score for a recommendation batch.
+
+        Fatigue is high when most signals are stale, weak, or from a saturated category.
+        This helps operators understand whether a batch contains genuinely new information
+        or is mostly background noise they've already seen.
+
+        Parameters:
+        - recommendations: list of recommendation dicts
+        - recurrence_by_title: title_prefix (60 chars) → recurrence count, or None
+        """
+        from cognition.signal_quality import SignalQualityEngine
+        engine = SignalQualityEngine()
+
+        if not recommendations:
+            return OperatorFatigueReport(
+                fatigue_score=0.0,
+                fatigue_band="low",
+                total_signals=0,
+                stale_signal_count=0,
+                weak_signal_count=0,
+                suppression_candidates=0,
+                dominant_category="",
+                saturation_detected=False,
+                observations=["No signals to assess."],
+            )
+
+        batch = engine.assess_batch(
+            recommendations, recurrence_by_title=recurrence_by_title
+        )
+
+        stale = sum(
+            1 for _, a in batch.assessments if a.flags.stale_signal
+        )
+        weak = sum(
+            1 for _, a in batch.assessments if a.flags.weak_evidence
+        )
+        suppressed = batch.suppressed_count
+        fatigue = batch.operator_fatigue_score
+
+        if fatigue >= 0.70:
+            band = "high"
+        elif fatigue >= 0.40:
+            band = "moderate"
+        else:
+            band = "low"
+
+        return OperatorFatigueReport(
+            fatigue_score=fatigue,
+            fatigue_band=band,
+            total_signals=batch.total_input,
+            stale_signal_count=stale,
+            weak_signal_count=weak,
+            suppression_candidates=suppressed,
+            dominant_category=batch.dominant_category,
+            saturation_detected=batch.saturation_detected,
+            observations=batch.observations,
+        )
+
+    def apply_quality_filter(
+        self,
+        recommendations: list[dict[str, Any]],
+        *,
+        recurrence_by_title: dict[str, int] | None = None,
+    ) -> QualityFilteredSet:
+        """
+        Apply signal quality filtering to a recommendation list.
+
+        Returns a QualityFilteredSet with:
+        - kept: recommendations that passed quality threshold
+        - suppressed: recommendations below threshold (annotated, never deleted)
+        - fatigue_report: operator fatigue summary for the full batch
+
+        Parameters:
+        - recommendations: list of recommendation dicts
+        - recurrence_by_title: title_prefix (60 chars) → recurrence count, or None
+
+        Advisory only. Suppressed signals remain accessible — callers decide
+        whether to display them.
+        """
+        from cognition.signal_quality import SignalQualityEngine
+        engine = SignalQualityEngine()
+
+        if not recommendations:
+            empty_fatigue = OperatorFatigueReport(
+                fatigue_score=0.0,
+                fatigue_band="low",
+                total_signals=0,
+                stale_signal_count=0,
+                weak_signal_count=0,
+                suppression_candidates=0,
+                dominant_category="",
+                saturation_detected=False,
+                observations=["No signals provided."],
+            )
+            return QualityFilteredSet(
+                kept=[],
+                suppressed=[],
+                total_input=0,
+                quality_filter_ratio=0.0,
+                fatigue_report=empty_fatigue,
+            )
+
+        batch = engine.assess_batch(
+            recommendations, recurrence_by_title=recurrence_by_title
+        )
+
+        kept = []
+        suppressed_list = []
+
+        for rec, assessment in batch.assessments:
+            annotated = dict(rec)
+            annotated["_quality_score"] = assessment.quality_score
+            annotated["_adjusted_confidence"] = assessment.adjusted_confidence
+            annotated["_suppressed"] = assessment.suppressed
+            if assessment.suppressed:
+                annotated["_suppression_reason"] = assessment.suppression_reason
+                suppressed_list.append(annotated)
+            else:
+                kept.append(annotated)
+
+        total = len(recommendations)
+        filter_ratio = len(suppressed_list) / total if total > 0 else 0.0
+
+        stale = sum(1 for _, a in batch.assessments if a.flags.stale_signal)
+        weak = sum(1 for _, a in batch.assessments if a.flags.weak_evidence)
+        fatigue = batch.operator_fatigue_score
+        band = "high" if fatigue >= 0.70 else ("moderate" if fatigue >= 0.40 else "low")
+
+        fatigue_report = OperatorFatigueReport(
+            fatigue_score=fatigue,
+            fatigue_band=band,
+            total_signals=total,
+            stale_signal_count=stale,
+            weak_signal_count=weak,
+            suppression_candidates=batch.suppressed_count,
+            dominant_category=batch.dominant_category,
+            saturation_detected=batch.saturation_detected,
+            observations=batch.observations,
+        )
+
+        logger.debug(
+            "Quality filter applied",
+            extra={
+                "total": total,
+                "kept": len(kept),
+                "suppressed": len(suppressed_list),
+                "fatigue": round(fatigue, 3),
+            },
+        )
+
+        return QualityFilteredSet(
+            kept=kept,
+            suppressed=suppressed_list,
+            total_input=total,
+            quality_filter_ratio=filter_ratio,
+            fatigue_report=fatigue_report,
         )
 
 

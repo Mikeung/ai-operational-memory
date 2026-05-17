@@ -231,6 +231,70 @@ class SignalDeduplicationEngine:
             observations=observations,
         )
 
+    def filter_weak_signals(
+        self,
+        concerns: list[DeduplicatedConcern],
+        *,
+        recurrence_by_title: dict[str, int] | None = None,
+        return_suppressed: bool = False,
+    ) -> tuple[list[DeduplicatedConcern], list[DeduplicatedConcern]]:
+        """
+        Apply signal quality filtering to a deduplicated concern list.
+
+        Uses cognition.signal_quality.SignalQualityEngine to assess each concern.
+        Concerns marked suppressed are separated but never deleted.
+
+        Parameters:
+        - concerns: deduplicated concerns from deduplicate()
+        - recurrence_by_title: title_prefix (60 chars) → recurrence count, or None
+        - return_suppressed: if True, also return the suppressed list (default False)
+
+        Returns: (kept, suppressed) — suppressed list is empty if return_suppressed=False.
+
+        Source concerns are not modified. Returns new concern objects annotated with
+        quality metadata in their dedup_reason field if suppressed.
+        """
+        # Lazy import to avoid circular dependency at module level
+        from cognition.signal_quality import SignalQualityEngine
+        engine = SignalQualityEngine()
+
+        recs = [c.to_dict() for c in concerns]
+        batch = engine.assess_batch(recs, recurrence_by_title=recurrence_by_title)
+
+        kept: list[DeduplicatedConcern] = []
+        suppressed_list: list[DeduplicatedConcern] = []
+
+        for concern, (_, assessment) in zip(concerns, batch.assessments):
+            if assessment.suppressed:
+                annotated = DeduplicatedConcern(
+                    title=concern.title,
+                    category=concern.category,
+                    confidence=assessment.adjusted_confidence,
+                    evidence=concern.evidence,
+                    deduplicated=concern.deduplicated,
+                    source_count=concern.source_count,
+                    source_titles=concern.source_titles,
+                    suppressed_count=concern.suppressed_count,
+                    dedup_reason=(
+                        f"[QUALITY-SUPPRESSED] {assessment.suppression_reason} "
+                        f"| Original: {concern.dedup_reason}"
+                    ).strip(" |"),
+                )
+                suppressed_list.append(annotated)
+            else:
+                kept.append(concern)
+
+        logger.debug(
+            "Weak signal filter applied",
+            extra={
+                "input": len(concerns),
+                "kept": len(kept),
+                "suppressed": len(suppressed_list),
+            },
+        )
+
+        return kept, (suppressed_list if return_suppressed else [])
+
     def deduplicate_evidence(self, evidence_list: list[str]) -> list[str]:
         """
         Remove near-duplicate evidence strings from a list.
