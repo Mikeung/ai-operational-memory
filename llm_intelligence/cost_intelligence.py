@@ -1,3 +1,18 @@
+"""
+LLM Cost Intelligence — heuristic and event-backed cost observations.
+
+Heuristic observations are derived from structural scan data (topology + workflows).
+Event-backed observations are derived from ingested LLM events when available.
+
+Design rules:
+- Events improve confidence. They do NOT imply complete visibility.
+- Fallback to heuristics when no events exist.
+- All observations use bounded language (appears, suggests, historically).
+- No billing API access. All cost estimates are approximations.
+"""
+
+from __future__ import annotations
+
 import logging
 from enum import Enum
 from typing import Any
@@ -318,5 +333,227 @@ class LLMCostIntelligence:
                 "Combined pattern can produce 5–20× token usage vs. a single direct LLM call",
             ],
             severity="high",
+            estimated_tier="high",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Event-backed cost observations (Phase 9 extension)
+# ---------------------------------------------------------------------------
+
+class EventBackedCostIntelligence:
+    """
+    Generates cost observations from actual ingested LLM event data.
+
+    These observations have higher confidence than heuristic observations
+    because they are evidence-backed. However they still use bounded language —
+    event coverage may be partial, and costs are still estimates.
+
+    Accepts pre-aggregated dicts from LLMEventStore (not raw events).
+    """
+
+    def observe_from_events(
+        self,
+        provider_aggregates: list[dict[str, Any]],
+        workflow_aggregates: list[dict[str, Any]],
+        window_hours: int = 168,
+    ) -> list[CostObservation]:
+        """
+        Generate event-backed cost observations.
+
+        provider_aggregates and workflow_aggregates come from
+        LLMEventStore.aggregate_by_provider() and aggregate_by_workflow().
+        """
+        if not provider_aggregates and not workflow_aggregates:
+            return []
+
+        observations: list[CostObservation] = []
+
+        total_tokens = sum(r.get("total_tokens", 0) or 0 for r in workflow_aggregates)
+        total_cost = sum(r.get("total_estimated_cost", 0) or 0 for r in provider_aggregates)
+
+        obs = self._observe_token_concentration(workflow_aggregates, total_tokens)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_provider_latency_increase(provider_aggregates)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_token_amplification_patterns(workflow_aggregates, total_tokens)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_retry_waste(workflow_aggregates)
+        if obs:
+            observations.append(obs)
+
+        obs = self._observe_cost_concentration(workflow_aggregates, total_cost)
+        if obs:
+            observations.append(obs)
+
+        logger.info(
+            "Event-backed cost intelligence complete",
+            extra={"observation_count": len(observations), "window_hours": window_hours},
+        )
+        return observations
+
+    def _observe_token_concentration(
+        self,
+        workflow_aggregates: list[dict[str, Any]],
+        total_tokens: int,
+    ) -> CostObservation | None:
+        if total_tokens == 0 or not workflow_aggregates:
+            return None
+
+        top = max(workflow_aggregates, key=lambda r: r.get("total_tokens", 0) or 0)
+        top_tokens = int(top.get("total_tokens", 0) or 0)
+        share = top_tokens / max(total_tokens, 1)
+
+        if share < 0.60:
+            return None
+
+        return CostObservation(
+            observation=(
+                f"Workflow '{top.get('workflow', 'unknown')}' consumed {share:.0%} of total tokens — "
+                "evidence suggests high token concentration in a single workflow."
+            ),
+            evidence=[
+                f"Workflow: {top.get('workflow', 'unknown')}",
+                f"Tokens: {top_tokens:,} of {total_tokens:,} total",
+                f"Concentration: {share:.1%}",
+                "Event data confirms this pattern — not a heuristic estimate",
+            ],
+            severity="warning",
+            estimated_tier="high",
+        )
+
+    def _observe_provider_latency_increase(
+        self,
+        provider_aggregates: list[dict[str, Any]],
+    ) -> CostObservation | None:
+        high_latency = [
+            r for r in provider_aggregates
+            if (r.get("avg_latency_ms") or 0) > 5_000
+        ]
+        if not high_latency:
+            return None
+
+        names = ", ".join(r.get("provider", "unknown") for r in high_latency)
+        avg_lats = [f"{r.get('provider', 'unknown')}: {r.get('avg_latency_ms', 0):.0f}ms"
+                    for r in high_latency]
+
+        return CostObservation(
+            observation=(
+                f"Elevated average latency observed for: {names}. "
+                "High latency may correlate with provider load or large context sizes."
+            ),
+            evidence=[
+                f"Average latencies: {', '.join(avg_lats)}",
+                "Measured from ingested event data",
+                "Latency above 5000ms historically correlates with timeout risks and retry amplification",
+            ],
+            severity="warning",
+            estimated_tier="medium",
+        )
+
+    def _observe_token_amplification_patterns(
+        self,
+        workflow_aggregates: list[dict[str, Any]],
+        total_tokens: int,
+    ) -> CostObservation | None:
+        if total_tokens == 0:
+            return None
+
+        high_completion_workflows = []
+        for r in workflow_aggregates:
+            prompt = int(r.get("prompt_tokens", 0) or 0)
+            completion = int(r.get("completion_tokens", 0) or 0)
+            if prompt > 0 and completion / max(prompt, 1) > 3.0:
+                high_completion_workflows.append(r.get("workflow", "unknown"))
+
+        if not high_completion_workflows:
+            return None
+
+        return CostObservation(
+            observation=(
+                f"Workflow(s) {', '.join(high_completion_workflows)} show high "
+                "completion-to-prompt token ratios — may indicate multi-step generation "
+                "or agent loop behavior."
+            ),
+            evidence=[
+                f"Workflows with ratio > 3×: {', '.join(high_completion_workflows)}",
+                "High completion ratios historically associated with multi-turn agent workflows",
+                "Evidence from ingested event data — not a structural heuristic",
+            ],
+            severity="info",
+            estimated_tier="medium",
+        )
+
+    def _observe_retry_waste(
+        self,
+        workflow_aggregates: list[dict[str, Any]],
+    ) -> CostObservation | None:
+        high_error_workflows = [
+            r for r in workflow_aggregates
+            if (r.get("error_count", 0) or 0) > 0
+            and (r.get("event_count", 0) or 0) > 0
+            and (r.get("error_count", 0) or 0) / max(r.get("event_count", 1), 1) >= 0.10
+        ]
+        if not high_error_workflows:
+            return None
+
+        names = [r.get("workflow", "unknown") for r in high_error_workflows]
+        rates = [
+            f"{r.get('workflow', 'unknown')}: "
+            f"{r.get('error_count', 0) / max(r.get('event_count', 1), 1):.1%}"
+            for r in high_error_workflows
+        ]
+
+        return CostObservation(
+            observation=(
+                f"High error rates in workflow(s): {', '.join(names)}. "
+                "If retries are enabled, token waste may be occurring on each failure."
+            ),
+            evidence=[
+                f"Error rates: {', '.join(rates)}",
+                "Retried calls re-send the full prompt — each failure may double token cost",
+                "Evidence from ingested event error counts",
+            ],
+            severity="warning",
+            estimated_tier="high",
+        )
+
+    def _observe_cost_concentration(
+        self,
+        workflow_aggregates: list[dict[str, Any]],
+        total_cost: float,
+    ) -> CostObservation | None:
+        if total_cost <= 0 or not workflow_aggregates:
+            return None
+
+        top = max(
+            workflow_aggregates,
+            key=lambda r: r.get("total_estimated_cost", 0) or 0,
+        )
+        top_cost = float(top.get("total_estimated_cost", 0) or 0)
+        share = top_cost / max(total_cost, 1e-9)
+
+        if share < 0.60:
+            return None
+
+        return CostObservation(
+            observation=(
+                f"Workflow '{top.get('workflow', 'unknown')}' accounts for {share:.0%} of "
+                "estimated operational cost — cost concentration in a single workflow "
+                "may indicate optimization opportunity."
+            ),
+            evidence=[
+                f"Workflow: {top.get('workflow', 'unknown')}",
+                f"Estimated cost: ${top_cost:.4f} of ${total_cost:.4f} total",
+                f"Cost share: {share:.1%}",
+                "Costs are event-level estimates — consult provider billing for authoritative figures",
+            ],
+            severity="warning",
             estimated_tier="high",
         )

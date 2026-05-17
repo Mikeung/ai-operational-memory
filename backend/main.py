@@ -5,6 +5,7 @@ from backend.health import router as health_router
 from backend.lifecycle import lifespan
 from backend.routers.ecosystem import router as ecosystem_router
 from backend.routers.investigation import router as investigation_router
+from backend.routers.llm_usage import router as llm_usage_router
 from backend.routers.operations import router as operations_router
 from backend.routers.reports import router as reports_router
 from backend.routers.runtime import router as runtime_router
@@ -34,6 +35,7 @@ app.include_router(investigation_router)
 app.include_router(ecosystem_router)
 app.include_router(stability_router)
 app.include_router(operations_router)
+app.include_router(llm_usage_router)
 
 
 @app.get("/", tags=["system"])
@@ -107,5 +109,19 @@ def root() -> dict:
             "readiness_report": "GET /operations/readiness/report",
             "active_profile": "GET /operations/profile",
             "list_profiles": "GET /operations/profiles",
+            "llm_ingest": "POST /llm/events",
+            "llm_summary": "GET /llm/summary",
+            "llm_providers": "GET /llm/providers",
+            "llm_workflows": "GET /llm/workflows",
+            "llm_trends": "GET /llm/trends",
+            "llm_costs": "GET /llm/costs",
+            "llm_storage": "GET /llm/storage",
+            "llm_retention_plan": "GET /llm/retention/plan",
+            "llm_retention_execute": "POST /llm/retention/execute",
+            "llm_report_provider": "GET /llm/report/provider",
+            "llm_report_workflows": "GET /llm/report/workflows",
+            "llm_report_latency": "GET /llm/report/latency",
+            "llm_report_tokens": "GET /llm/report/tokens",
+            "llm_report_errors": "GET /llm/report/errors",
         },
     }

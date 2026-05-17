@@ -284,3 +284,199 @@ class RetentionEngine:
         """Convenience: plan then execute in one call."""
         retention_plan = self.plan(snapshots, policy)
         return self.execute(retention_plan, delete_fn)
+
+
+# ---------------------------------------------------------------------------
+# LLM Event Retention
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class LLMEventRetentionPolicy:
+    """Retention policy for LLM operational events."""
+
+    retention_days: int = 30
+    max_event_count: int = 50_000
+    min_keep_count: int = 1_000
+    dry_run: bool = True  # safe default
+
+    def __post_init__(self) -> None:
+        if self.retention_days < 1:
+            raise ValueError("retention_days must be at least 1")
+        if self.max_event_count < self.min_keep_count:
+            raise ValueError("max_event_count must be >= min_keep_count")
+        if self.min_keep_count < 1:
+            raise ValueError("min_keep_count must be at least 1")
+
+
+@dataclass
+class LLMEventRetentionPlan:
+    policy: LLMEventRetentionPolicy
+    total_events: int
+    age_deletable: int
+    count_deletable: int
+    total_deletable: int
+    dry_run: bool
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def summary(self) -> str:
+        prefix = "[DRY RUN] " if self.dry_run else ""
+        return (
+            f"{prefix}LLM event retention plan: {self.total_events} total, "
+            f"{self.total_deletable} to delete. "
+            f"Policy: {self.policy.retention_days}d age / "
+            f"{self.policy.max_event_count} max count."
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "policy": {
+                "retention_days": self.policy.retention_days,
+                "max_event_count": self.policy.max_event_count,
+                "min_keep_count": self.policy.min_keep_count,
+                "dry_run": self.policy.dry_run,
+            },
+            "total_events": self.total_events,
+            "age_deletable": self.age_deletable,
+            "count_deletable": self.count_deletable,
+            "total_deletable": self.total_deletable,
+            "dry_run": self.dry_run,
+            "generated_at": self.generated_at,
+        }
+
+
+@dataclass
+class LLMEventRetentionResult:
+    plan: LLMEventRetentionPlan
+    deleted_by_age: int
+    deleted_by_count: int
+    executed: bool
+    message: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan": self.plan.to_dict(),
+            "deleted_by_age": self.deleted_by_age,
+            "deleted_by_count": self.deleted_by_count,
+            "total_deleted": self.deleted_by_age + self.deleted_by_count,
+            "executed": self.executed,
+            "message": self.message,
+            "advisory": "All LLM event retention operations require explicit operator approval.",
+        }
+
+
+class LLMEventRetentionEngine:
+    """
+    Plans and optionally executes LLM event retention pruning.
+
+    dry_run=True (safe default) previews without deleting.
+    dry_run=False executes after planning.
+
+    Uses two-pass pruning:
+    1. Age: remove events older than retention_days
+    2. Count: remove oldest events if total exceeds max_event_count
+    """
+
+    def plan(
+        self,
+        total_events: int,
+        oldest_timestamp: str | None,
+        policy: LLMEventRetentionPolicy,
+    ) -> LLMEventRetentionPlan:
+        cutoff = datetime.now(UTC) - timedelta(days=policy.retention_days)
+
+        age_deletable = 0
+        if oldest_timestamp:
+            try:
+                ts = datetime.fromisoformat(oldest_timestamp.replace(" ", "T"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                if ts < cutoff:
+                    age_deletable = max(0, total_events - policy.min_keep_count)
+            except (ValueError, AttributeError):
+                pass
+
+        count_deletable = 0
+        if total_events > policy.max_event_count:
+            count_deletable = min(
+                total_events - policy.max_event_count,
+                total_events - policy.min_keep_count,
+            )
+            count_deletable = max(count_deletable, 0)
+
+        total_deletable = max(age_deletable, count_deletable)
+
+        logger.info(
+            "LLM event retention plan computed",
+            extra={
+                "total": total_events,
+                "age_deletable": age_deletable,
+                "count_deletable": count_deletable,
+                "total_deletable": total_deletable,
+                "dry_run": policy.dry_run,
+            },
+        )
+        return LLMEventRetentionPlan(
+            policy=policy,
+            total_events=total_events,
+            age_deletable=age_deletable,
+            count_deletable=count_deletable,
+            total_deletable=total_deletable,
+            dry_run=policy.dry_run,
+        )
+
+    def execute(
+        self,
+        plan: LLMEventRetentionPlan,
+        delete_by_age_fn: Callable[[int], int],
+        delete_by_count_fn: Callable[[int, int], int],
+    ) -> LLMEventRetentionResult:
+        if plan.dry_run:
+            logger.info(
+                "LLM event retention dry run — no deletions performed",
+                extra={"total_deletable": plan.total_deletable},
+            )
+            return LLMEventRetentionResult(
+                plan=plan,
+                deleted_by_age=0,
+                deleted_by_count=0,
+                executed=False,
+                message=(
+                    f"Dry run: up to {plan.total_deletable} event(s) identified for deletion. "
+                    "Set dry_run=False on LLMEventRetentionPolicy to execute."
+                ),
+            )
+
+        if plan.total_deletable == 0:
+            return LLMEventRetentionResult(
+                plan=plan,
+                deleted_by_age=0,
+                deleted_by_count=0,
+                executed=True,
+                message="No LLM events to delete — retention policy already satisfied.",
+            )
+
+        deleted_age = 0
+        deleted_count = 0
+
+        if plan.age_deletable > 0:
+            deleted_age = delete_by_age_fn(plan.policy.retention_days)
+
+        if plan.count_deletable > 0:
+            deleted_count = delete_by_count_fn(
+                plan.policy.max_event_count, plan.policy.min_keep_count
+            )
+
+        logger.info(
+            "LLM event retention executed",
+            extra={"deleted_age": deleted_age, "deleted_count": deleted_count},
+        )
+        return LLMEventRetentionResult(
+            plan=plan,
+            deleted_by_age=deleted_age,
+            deleted_by_count=deleted_count,
+            executed=True,
+            message=(
+                f"Deleted {deleted_age} events by age, {deleted_count} by count. "
+                f"Total deleted: {deleted_age + deleted_count}."
+            ),
+        )

@@ -71,3 +71,12 @@
 | 2026-05-16 | SelfCheck has 5 deterministic checks | Scheduler, freshness, schema, count, storage; each returns SelfCheckItem with severity; no LLM cognition in self-check path |
 | 2026-05-16 | Scripts are bash, no root required | bootstrap/update/backup/restore/healthcheck use virtualenv; sqlite3 hot-backup via .backup command; designed for single VPS operator |
 | 2026-05-16 | Operations router at /operations/* prefix | Separates deployment/maintenance concerns from intelligence endpoints; retention POST requires explicit dry_run=false param |
+| 2026-05-17 | LLM event store reuses same SQLite DB file | Single db_path for both OperationalStore and LLMEventStore; separate tables (llm_events) avoid file proliferation; same WAL-mode connection pattern |
+| 2026-05-17 | Privacy guard is a hard gate, not advisory | PrivacyGuard runs before validation, before storage; false positives are acceptable; false negatives (storing content) are not — conservative design intended |
+| 2026-05-17 | Natural language heuristic uses space ratio + sentence boundary | Two-signal heuristic: sentence-boundary regex OR space-to-char ratio > 12%; both conditions are intentionally conservative to avoid content leakage |
+| 2026-05-17 | LLM event ingestion is optional | No ingestion → cost intelligence falls back to structural heuristics; ingestion adds confidence without being required; system must work with zero events |
+| 2026-05-17 | LLM event retention uses two-pass pruning | Pass 1: delete events older than retention_days; Pass 2: trim count to max_event_count; safety floor enforced in both passes; dry_run=True is safe default |
+| 2026-05-17 | EventBackedCostIntelligence is a separate class | Kept distinct from heuristic LLMCostIntelligence to preserve clear separation: structural heuristics vs. event-backed observations; callers combine both when relevant |
+| 2026-05-17 | Usage analysis accepts pre-aggregated rows, not raw events | Avoids streaming raw events through analysis layer; aggregation is done by SQLite GROUP BY; analysis layer is stateless and deterministic |
+| 2026-05-17 | /llm/events POST returns warnings even on success | Privacy guard may produce non-fatal warnings (e.g., long metadata value that passed); these are surfaced to the caller for awareness without rejecting the event |
+| 2026-05-17 | LLM router reports share analysis engine with JSON endpoints | /llm/report/* markdown routes reuse the same UsageAnalysisEngine instance; no separate analysis logic for reports — reports are just formatted views of the same data |

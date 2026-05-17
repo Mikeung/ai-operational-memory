@@ -9,6 +9,7 @@ from backend.config import settings
 from backend.operations import run_full_scan
 from backend.scheduler import OperationalScheduler
 from memory.drift_detector import DriftDetector
+from memory.llm_store import LLMEventStore
 from memory.snapshot_engine import SnapshotEngine
 from memory.store import OperationalStore
 from observability.logger import setup_logging
@@ -42,6 +43,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     store = OperationalStore(settings.db_path)
     store.connect()
     app.state.store = store
+
+    # LLM event store (same SQLite file, separate table)
+    llm_store = LLMEventStore(settings.db_path)
+    llm_store.connect()
+    app.state.llm_store = llm_store
 
     # Operational components
     snapshot_engine = SnapshotEngine(store)
@@ -97,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Application shutting down")
     scheduler.stop()
     store.disconnect()
+    llm_store.disconnect()
     logger.info("Application stopped cleanly")
 
 
