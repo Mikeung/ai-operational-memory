@@ -4,6 +4,7 @@ from backend.config import settings
 from backend.health import router as health_router
 from backend.lifecycle import lifespan
 from backend.routers.ecosystem import router as ecosystem_router
+from backend.routers.integration import router as integration_router
 from backend.routers.investigation import router as investigation_router
 from backend.routers.llm_usage import router as llm_usage_router
 from backend.routers.operations import router as operations_router
@@ -38,6 +39,7 @@ app.include_router(stability_router)
 app.include_router(operations_router)
 app.include_router(llm_usage_router)
 app.include_router(projects_router)
+app.include_router(integration_router)
 
 
 @app.get("/", tags=["system"])
@@ -137,5 +139,12 @@ def root() -> dict:
             "survivability_report": "GET /projects/survivability/report",
             "ingestion_pressure": "GET /projects/pressure",
             "storage_overview": "GET /projects/storage/overview",
+            "integration_profiles": "GET /integration/profiles",
+            "integration_profile": "GET /integration/profiles/{stack}",
+            "integration_check_event": "POST /integration/check/event",
+            "integration_check_batch": "POST /integration/check/batch",
+            "integration_readiness": "GET /integration/report/readiness",
+            "integration_event_quality": "GET /integration/report/event-quality",
+            "integration_sdk_guidance": "GET /integration/report/sdk-guidance",
         },
     }
