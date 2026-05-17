@@ -53,6 +53,17 @@ class OperationalStore:
                 ON snapshots(snapshot_type, created_at DESC);
         """)
         self._conn.commit()
+        # Add project_id column to snapshots if not present (backward compat)
+        try:
+            self._conn.execute("ALTER TABLE snapshots ADD COLUMN project_id TEXT")
+            self._conn.commit()
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snapshots_project "
+                "ON snapshots(project_id, created_at DESC)"
+            )
+            self._conn.commit()
+        except Exception:
+            pass  # Column already exists
         logger.info("Database schema migrated")
 
     def insert_scan_record(
@@ -68,15 +79,21 @@ class OperationalStore:
         logger.debug("Scan record inserted", extra={"scanner": scanner, "id": row_id})
         return row_id
 
-    def insert_snapshot(self, snapshot_type: str, data: dict[str, Any], notes: str = "") -> int:
+    def insert_snapshot(
+        self,
+        snapshot_type: str,
+        data: dict[str, Any],
+        notes: str = "",
+        project_id: str | None = None,
+    ) -> int:
         assert self._conn is not None
         cursor = self._conn.execute(
-            "INSERT INTO snapshots (snapshot_type, data, notes) VALUES (?, ?, ?)",
-            (snapshot_type, json.dumps(data), notes),
+            "INSERT INTO snapshots (snapshot_type, data, notes, project_id) VALUES (?, ?, ?, ?)",
+            (snapshot_type, json.dumps(data), notes, project_id),
         )
         self._conn.commit()
         row_id = cursor.lastrowid or 0
-        logger.debug("Snapshot inserted", extra={"type": snapshot_type, "id": row_id})
+        logger.debug("Snapshot inserted", extra={"type": snapshot_type, "id": row_id, "project_id": project_id})
         return row_id
 
     def get_recent_scans(self, scanner: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -144,6 +161,63 @@ class OperationalStore:
         else:
             row = self._conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()
         return int(row[0]) if row else 0
+
+    def list_snapshots_by_project(
+        self, project_id: str, snapshot_type: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Return snapshots scoped to a project."""
+        assert self._conn is not None
+        if snapshot_type:
+            rows = self._conn.execute(
+                "SELECT * FROM snapshots WHERE project_id = ? AND snapshot_type = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (project_id, snapshot_type, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM snapshots WHERE project_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (project_id, limit),
+            ).fetchall()
+        return [_deserialize_snapshot(dict(r)) for r in rows]
+
+    def count_snapshots_by_project(self, project_id: str) -> int:
+        """Return snapshot count for a specific project."""
+        assert self._conn is not None
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM snapshots WHERE project_id = ?", (project_id,)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def get_latest_snapshot_by_project(
+        self, project_id: str, snapshot_type: str
+    ) -> dict[str, Any] | None:
+        """Return the most recent snapshot for a project+type combination."""
+        assert self._conn is not None
+        row = self._conn.execute(
+            "SELECT * FROM snapshots WHERE project_id = ? AND snapshot_type = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (project_id, snapshot_type),
+        ).fetchone()
+        if not row:
+            return None
+        return _deserialize_snapshot(dict(row))
+
+    def get_project_snapshot_stats(self) -> list[dict[str, Any]]:
+        """Per-project snapshot counts and latest timestamps."""
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """SELECT
+                project_id,
+                COUNT(*) AS snapshot_count,
+                MAX(created_at) AS latest_at,
+                MIN(created_at) AS oldest_at
+               FROM snapshots
+               WHERE project_id IS NOT NULL
+               GROUP BY project_id
+               ORDER BY snapshot_count DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def delete_snapshots_by_ids(self, snapshot_ids: list[int]) -> int:
         """Delete snapshots by ID list. Returns the number of rows deleted.

@@ -94,13 +94,24 @@ class LLMEventStore:
                 ON llm_events(timestamp DESC);
         """)
         self._conn.commit()
+        # Add project_id column if not present (backward compat)
+        try:
+            self._conn.execute("ALTER TABLE llm_events ADD COLUMN project_id TEXT")
+            self._conn.commit()
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_events_project "
+                "ON llm_events(project_id, timestamp DESC)"
+            )
+            self._conn.commit()
+        except Exception:
+            pass  # Column already exists
         logger.info("LLM event store schema migrated")
 
     # -----------------------------------------------------------------------
     # Write
     # -----------------------------------------------------------------------
 
-    def append(self, event: LLMEvent) -> int:
+    def append(self, event: LLMEvent, project_id: str | None = None) -> int:
         """Insert a single LLM event. Returns the new row ID."""
         assert self._conn is not None
         cursor = self._conn.execute(
@@ -108,8 +119,8 @@ class LLMEventStore:
                 timestamp, provider, model, workflow,
                 prompt_tokens, completion_tokens, total_tokens,
                 latency_ms, success, request_kind,
-                estimated_cost, error_type, metadata, schema_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                estimated_cost, error_type, metadata, schema_version, project_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.timestamp,
                 event.provider,
@@ -125,13 +136,14 @@ class LLMEventStore:
                 event.error_type,
                 json.dumps(event.metadata),
                 event.schema_version,
+                project_id,
             ),
         )
         self._conn.commit()
         row_id = cursor.lastrowid or 0
         logger.debug(
             "LLM event appended",
-            extra={"id": row_id, "provider": event.provider, "workflow": event.workflow},
+            extra={"id": row_id, "provider": event.provider, "workflow": event.workflow, "project_id": project_id},
         )
         return row_id
 
@@ -331,6 +343,87 @@ class LLMEventStore:
 
     def get_recent_events(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.query(limit=min(limit, 100))
+
+    # -----------------------------------------------------------------------
+    # Project-scoped queries
+    # -----------------------------------------------------------------------
+
+    def aggregate_by_provider_project(
+        self, project_id: str, window_hours: int = 168
+    ) -> list[dict[str, Any]]:
+        """Provider aggregates scoped to a single project."""
+        assert self._conn is not None
+        sql = """
+            SELECT
+                provider,
+                COUNT(*)                          AS event_count,
+                SUM(total_tokens)                 AS total_tokens,
+                SUM(prompt_tokens)                AS prompt_tokens,
+                SUM(completion_tokens)            AS completion_tokens,
+                AVG(latency_ms)                   AS avg_latency_ms,
+                MAX(latency_ms)                   AS max_latency_ms,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS error_count,
+                SUM(COALESCE(estimated_cost, 0))  AS total_estimated_cost
+            FROM llm_events
+            WHERE project_id = ?
+              AND timestamp >= datetime('now', ? || ' hours')
+            GROUP BY provider
+            ORDER BY total_tokens DESC
+        """
+        rows = self._conn.execute(sql, (project_id, f"-{window_hours}")).fetchall()
+        return [dict(r) for r in rows]
+
+    def aggregate_by_workflow_project(
+        self, project_id: str, window_hours: int = 168
+    ) -> list[dict[str, Any]]:
+        """Workflow aggregates scoped to a single project."""
+        assert self._conn is not None
+        sql = """
+            SELECT
+                workflow,
+                COUNT(*)                          AS event_count,
+                SUM(total_tokens)                 AS total_tokens,
+                SUM(prompt_tokens)                AS prompt_tokens,
+                SUM(completion_tokens)            AS completion_tokens,
+                AVG(latency_ms)                   AS avg_latency_ms,
+                MAX(latency_ms)                   AS max_latency_ms,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS error_count,
+                SUM(COALESCE(estimated_cost, 0))  AS total_estimated_cost
+            FROM llm_events
+            WHERE project_id = ?
+              AND timestamp >= datetime('now', ? || ' hours')
+            GROUP BY workflow
+            ORDER BY total_tokens DESC
+        """
+        rows = self._conn.execute(sql, (project_id, f"-{window_hours}")).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_events_by_project(self) -> list[dict[str, Any]]:
+        """Return event counts grouped by project_id."""
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """SELECT
+                project_id,
+                COUNT(*) AS event_count,
+                SUM(total_tokens) AS total_tokens,
+                SUM(COALESCE(estimated_cost, 0)) AS total_estimated_cost,
+                MAX(timestamp) AS latest_at
+               FROM llm_events
+               WHERE project_id IS NOT NULL
+               GROUP BY project_id
+               ORDER BY event_count DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_latest_event_timestamp_by_project(self, project_id: str) -> str | None:
+        """Return most recent event timestamp for a project."""
+        assert self._conn is not None
+        row = self._conn.execute(
+            "SELECT MAX(timestamp) FROM llm_events WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        val = row[0] if row else None
+        return str(val) if val else None
 
     # -----------------------------------------------------------------------
     # Retention

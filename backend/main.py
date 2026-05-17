@@ -7,6 +7,7 @@ from backend.routers.ecosystem import router as ecosystem_router
 from backend.routers.investigation import router as investigation_router
 from backend.routers.llm_usage import router as llm_usage_router
 from backend.routers.operations import router as operations_router
+from backend.routers.projects import router as projects_router
 from backend.routers.reports import router as reports_router
 from backend.routers.runtime import router as runtime_router
 from backend.routers.scan import router as scan_router
@@ -36,6 +37,7 @@ app.include_router(ecosystem_router)
 app.include_router(stability_router)
 app.include_router(operations_router)
 app.include_router(llm_usage_router)
+app.include_router(projects_router)
 
 
 @app.get("/", tags=["system"])
@@ -123,5 +125,17 @@ def root() -> dict:
             "llm_report_latency": "GET /llm/report/latency",
             "llm_report_tokens": "GET /llm/report/tokens",
             "llm_report_errors": "GET /llm/report/errors",
+            "list_projects": "GET /projects",
+            "create_project": "POST /projects",
+            "get_project": "GET /projects/{id}",
+            "update_project": "PATCH /projects/{id}",
+            "archive_project": "POST /projects/{id}/archive",
+            "project_summary": "GET /projects/{id}/summary",
+            "project_storage": "GET /projects/{id}/storage",
+            "project_health": "GET /projects/{id}/health",
+            "survivability": "GET /projects/survivability",
+            "survivability_report": "GET /projects/survivability/report",
+            "ingestion_pressure": "GET /projects/pressure",
+            "storage_overview": "GET /projects/storage/overview",
         },
     }
