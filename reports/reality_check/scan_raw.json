@@ -1,0 +1,133 @@
+{
+  "scanned_at": "2026-05-17T14:49:20.278854+00:00",
+  "target": "/root/ai-operational-memory",
+  "snapshot_id": 2,
+  "elapsed_s": 1.15,
+  "topology_node_count": 30,
+  "workflow_count": 3,
+  "recommendation_count": 4,
+  "runtime_status": "healthy",
+  "runtime_score": 1.0,
+  "recommendations": [
+    {
+      "title": "LLM API service \u2014 add request-level latency and token tracking",
+      "priority": null,
+      "confidence": 0.7,
+      "category": "observability"
+    },
+    {
+      "title": "Cost pattern: Multiple premium LLM providers in use (openai, anthropic) \u2014 ...",
+      "priority": null,
+      "confidence": 0.65,
+      "category": "cost"
+    },
+    {
+      "title": "Scheduled LLM job \u2014 ensure idempotency and failure alerting",
+      "priority": null,
+      "confidence": 0.6,
+      "category": "observability"
+    },
+    {
+      "title": "No vector store detected alongside LLM usage",
+      "priority": null,
+      "confidence": 0.6,
+      "category": "topology"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "API_LLM_WRAPPER",
+      "confidence": 0.8
+    },
+    {
+      "name": "SCHEDULED_LLM_JOB",
+      "confidence": 0.75
+    },
+    {
+      "name": "MULTI_PROVIDER_ORCHESTRATION",
+      "confidence": 0.82
+    }
+  ],
+  "topology_nodes": [
+    {
+      "label": "ai-operational-memory",
+      "kind": null
+    },
+    {
+      "label": "fastapi",
+      "kind": null
+    },
+    {
+      "label": "uvicorn",
+      "kind": null
+    },
+    {
+      "label": "ai-operational-memory:docker",
+      "kind": null
+    },
+    {
+      "label": "openai",
+      "kind": null
+    },
+    {
+      "label": "anthropic",
+      "kind": null
+    },
+    {
+      "label": ":7000 (unknown-7000)",
+      "kind": null
+    },
+    {
+      "label": ":7501 (unknown-7501)",
+      "kind": null
+    },
+    {
+      "label": ":8000 (fastapi/uvicorn)",
+      "kind": null
+    },
+    {
+      "label": ":40483 (unknown-40483)",
+      "kind": null
+    },
+    {
+      "label": ":8001 (api-alt)",
+      "kind": null
+    },
+    {
+      "label": ":6379 (redis)",
+      "kind": null
+    },
+    {
+      "label": ":7500 (unknown-7500)",
+      "kind": null
+    },
+    {
+      "label": ":7600 (unknown-7600)",
+      "kind": null
+    },
+    {
+      "label": ":53 (unknown-53)",
+      "kind": null
+    },
+    {
+      "label": ":5433 (unknown-5433)",
+      "kind": null
+    },
+    {
+      "label": ":5432 (postgresql)",
+      "kind": null
+    },
+    {
+      "label": ":54441 (unknown-54441)",
+      "kind": null
+    },
+    {
+      "label": ":37124 (unknown-37124)",
+      "kind": null
+    },
+    {
+      "label": ":61287 (unknown-61287)",
+      "kind": null
+    }
+  ]
+}

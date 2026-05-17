@@ -190,6 +190,48 @@ This system follows a strict PM-authority model:
 
 ---
 
+## Reality Check Milestone
+
+**2026-05-17 — First Real VPS Deployment**
+
+The system was deployed and validated against a live VPS with 6 running Python
+services, PostgreSQL, Redis, Elasticsearch, and nginx co-resident.
+
+### What was validated
+
+- **Real scans ran** against 3 actual projects: ai-operational-memory,
+  telegram-humint, mempalace. Scan time: 0.6–1.15s per target.
+- **Workflow inference is functional** and accurate. TELEGRAM_LLM_PIPELINE
+  detected at 0.88 confidence on telegram-humint. MULTI_PROVIDER_ORCHESTRATION
+  at 0.82 on ai-operational-memory.
+- **Telegram delivery is operational.** 5 messages sent, 0 failures, <300ms
+  latency. Daily digest, critical alert, and duplicate suppression all work.
+- **SQLite storage is clean.** 4 snapshots, 53 KB, zero fragmentation.
+- **Delivery routing works.** Duplicate suppression confirmed. Quiet hours
+  enforced.
+
+### What was found (operational reality, not marketing)
+
+- Topology includes all VPS-wide services, not just target project services.
+  This is a false-positive source on shared VPS environments.
+- Recommendations are generic and repeat across projects. Priority field is null.
+- Runtime health score is always 1.0 — no signal differentiation in current conditions.
+- Service is not daemonized. Periodic scans do not run without a systemd unit.
+
+### Reports
+
+Full findings in [`reports/reality_check/`](reports/reality_check/):
+- `OPERATIONAL_OBSERVATIONS.md` — skeptical, evidence-based operational notes
+- `REALITY_CHECK_SUMMARY.md` — what worked, what failed, tuning priorities
+
+### Recommended next step
+
+Deploy as a daemon (systemd unit on a non-conflicting port), accumulate 7 days
+of scan history, then reassess. The system is feature-complete; the bottleneck
+is now operational deployment.
+
+---
+
 ## License
 
 MIT
