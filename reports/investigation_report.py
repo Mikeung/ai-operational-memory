@@ -340,6 +340,120 @@ def generate_persistent_concerns_report(
 
 
 # ---------------------------------------------------------------------------
+# Phase 13C: Quality-scored and triage report generators
+# ---------------------------------------------------------------------------
+
+def generate_quality_scored_report(
+    result: dict[str, Any],
+    quality: dict[str, Any],
+    patterns: list[dict[str, Any]] | None = None,
+) -> str:
+    """
+    Generate an investigation report prefixed with quality assessment context.
+
+    result: InvestigationResult.to_dict()
+    quality: InvestigationQualityAssessment.to_dict()
+    """
+    now = _now()
+    kind = result.get("kind", "?")
+    band = quality.get("quality_band", "?")
+    score = float(quality.get("quality_score", 0.0))
+    guidance = quality.get("guidance", [])
+
+    lines: list[str] = [
+        "# Operational Investigation Report (Quality-Scored)",
+        f"**Generated:** {now}",
+        f"**Investigation kind:** {kind}",
+        f"**Quality band:** {band.upper()} (score: {score:.2f})",
+        "",
+    ]
+
+    if band in ("limited", "insufficient"):
+        lines += [
+            f"> **Quality warning:** This result has **{band}** evidence coverage.",
+            "",
+        ]
+
+    if guidance:
+        lines += ["## Quality Guidance", ""]
+        for item in guidance:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    # Append the full base investigation content (skip its duplicate header)
+    base = generate_investigation_report(result, patterns=patterns)
+    base_lines = base.split("\n")
+    # Find first content section (Evidence, uncertainty, or the summary blockquote)
+    body_start = 0
+    for i, line in enumerate(base_lines):
+        if line.startswith("> ") or line.startswith("## "):
+            body_start = i
+            break
+    lines.extend(base_lines[body_start:])
+    logger.info("Quality-scored investigation report generated", extra={"kind": kind, "band": band})
+    return "\n".join(lines)
+
+
+def generate_triage_report(triage: dict[str, Any]) -> str:
+    """Generate a markdown triage report — quality summary + next-step suggestions."""
+    now = _now()
+    current_kind = triage.get("current_kind", "?")
+    coverage = float(triage.get("coverage_fraction", 0.0))
+    completed = triage.get("completed_kinds", [])
+    remaining = triage.get("remaining_kinds", [])
+    suggestions = triage.get("suggestions", [])
+    quality = triage.get("quality_assessment", {})
+
+    band = quality.get("quality_band", "?")
+    score = float(quality.get("quality_score", 0.0))
+
+    lines: list[str] = [
+        "# Investigation Triage Report",
+        f"**Generated:** {now}",
+        f"**Current investigation kind:** {current_kind}",
+        f"**Coverage:** {len(completed)}/6 kinds ({coverage:.0%} complete)",
+        "",
+        "## Current Investigation Quality",
+        f"- Quality band: **{band.upper()}** (score: {score:.2f})",
+    ]
+    for obs in quality.get("observations", [])[:3]:
+        lines.append(f"- {obs}")
+    lines.append("")
+
+    if completed:
+        lines += [
+            "## Investigation Progress",
+            f"**Completed:** {', '.join(completed)}",
+        ]
+    if remaining:
+        lines.append(f"**Remaining:** {', '.join(remaining)}")
+    lines.append("")
+
+    if suggestions:
+        lines += ["## Suggested Next Steps", ""]
+        for i, sug in enumerate(suggestions, 1):
+            priority = sug.get("priority", "?").upper()
+            kind_label = sug.get("kind") or "General guidance"
+            rationale = sug.get("rationale", "")
+            hint = sug.get("context_hint", "")
+            lines.append(f"### {i}. [{priority}] {kind_label}")
+            lines.append(f"- **Rationale:** {rationale}")
+            if hint:
+                lines.append(f"- **How to use:** {hint}")
+            lines.append("")
+    else:
+        lines += [
+            "## Next Steps",
+            "_No additional suggestions — investigation coverage appears complete._",
+            "",
+        ]
+
+    lines += _advisory_footer()
+    logger.info("Triage report generated", extra={"current_kind": current_kind})
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
