@@ -142,3 +142,6 @@
 | 138 | Investigation triage guidance (13C) | Completed | 2026-05-17: InvestigationTriageReport with rule-based next-investigation suggestions; coverage fraction tracking; kind-specific follow-on rules for all 6 investigation kinds |
 | 139 | Quality-scored report generators (13C) | Completed | 2026-05-17: reports/investigation_report.py — generate_quality_scored_report(), generate_triage_report(); markdown output with quality context and next-step suggestions |
 | 140 | Phase 13C tests                | Completed | 2026-05-17: 71 new tests — test_investigation_quality (71); 1359 total passing |
+| 141 | Performance Profiler (13D)     | Completed | 2026-05-17: tools/performance_profiler.py — PerformanceProfiler.analyze(), OperationTimer context manager, BUDGETS dict (10 VPS-realistic budgets), PerformanceBudgetReport.markdown(); advisory only |
+| 142 | Phase 13 benchmarks            | Completed | 2026-05-17: benchmarks/bench_phase13.py — storage optimizer, investigation quality, performance profiler; VPS budget compliance check; all Phase 13 engines within soft budget at <0.1ms |
+| 143 | Phase 13D tests                | Completed | 2026-05-17: 44 new tests — test_performance_profiler (44); 1403 total passing |
