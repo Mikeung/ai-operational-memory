@@ -113,6 +113,7 @@ class SystemSelfChecker:
         max_snapshot_count: int = 200,
         storage_estimate: dict[str, Any] | None = None,
         schema_validation: dict[str, Any] | None = None,
+        delivery_health: dict[str, Any] | None = None,
     ) -> SelfCheckReport:
         items: list[SelfCheckItem] = []
 
@@ -121,6 +122,8 @@ class SystemSelfChecker:
         items.append(self._check_schema(schema_validation))
         items.append(self._check_snapshot_count(snapshot_count, max_snapshot_count))
         items.append(self._check_storage(storage_estimate))
+        if delivery_health is not None:
+            items.append(self._check_delivery(delivery_health))
 
         overall = self._compute_overall(items)
         logger.info(
@@ -330,6 +333,57 @@ class SystemSelfChecker:
             message=f"Storage pressure normal — disk {disk_pct:.0f}% used.",
             severity="ok",
             details={"disk_usage_percent": disk_pct},
+        )
+
+    def _check_delivery(self, delivery: dict[str, Any]) -> SelfCheckItem:
+        enabled = delivery.get("telegram_enabled", False)
+        if not enabled:
+            return SelfCheckItem(
+                name="Telegram Delivery",
+                passed=True,
+                message="Telegram delivery is disabled — no delivery health to check.",
+                severity="ok",
+            )
+
+        failure_count = delivery.get("failure_count", 0)
+        success_count = delivery.get("success_count", 0)
+        last_failure = delivery.get("last_failure_error")
+        error_rate = delivery.get("error_rate", 0.0)
+
+        if failure_count > 0 and success_count == 0:
+            return SelfCheckItem(
+                name="Telegram Delivery",
+                passed=False,
+                message=f"Telegram delivery has {failure_count} failure(s) and no successes.",
+                severity="warning",
+                details={
+                    "failure_count": failure_count,
+                    "last_error": last_failure or "unknown",
+                },
+            )
+
+        if error_rate >= 0.5:
+            return SelfCheckItem(
+                name="Telegram Delivery",
+                passed=False,
+                message=f"Telegram delivery error rate is {error_rate:.0%} — over 50%.",
+                severity="warning",
+                details={"error_rate": error_rate, "failure_count": failure_count},
+            )
+
+        return SelfCheckItem(
+            name="Telegram Delivery",
+            passed=True,
+            message=(
+                f"Telegram delivery operational. "
+                f"{success_count} success(es), {failure_count} failure(s)."
+            ),
+            severity="ok",
+            details={
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "avg_latency_ms": delivery.get("avg_latency_ms"),
+            },
         )
 
     @staticmethod

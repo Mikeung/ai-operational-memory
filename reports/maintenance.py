@@ -26,6 +26,7 @@ def generate_maintenance_report(
     storage: dict[str, Any] | None = None,
     scheduler: dict[str, Any] | None = None,
     retention_plan: dict[str, Any] | None = None,
+    delivery_health: dict[str, Any] | None = None,
 ) -> str:
     """Generate a full operational maintenance report in markdown."""
     now = _now()
@@ -114,6 +115,35 @@ def generate_maintenance_report(
                 f"{policy.get('min_keep_count', '?')} min keep"
             )
         lines.append("")
+
+    # Delivery health summary
+    if delivery_health is not None:
+        enabled = delivery_health.get("telegram_enabled", False)
+        if enabled:
+            success = delivery_health.get("success_count", 0)
+            failures = delivery_health.get("failure_count", 0)
+            suppressions = delivery_health.get("total_suppression_count", 0)
+            avg_ms = delivery_health.get("avg_latency_ms")
+            latency_str = f"{avg_ms:.0f} ms" if avg_ms is not None else "n/a"
+            lines += [
+                "## Telegram Delivery Health",
+                f"**Successes:** {success} | **Failures:** {failures} | "
+                f"**Suppressions:** {suppressions}",
+                f"**Avg latency:** {latency_str}",
+                "",
+            ]
+            last_failure = delivery_health.get("last_failure_error")
+            if last_failure:
+                lines.append(f"**Last failure:** {last_failure}")
+                lines.append("")
+            q_count = delivery_health.get("quiet_hour_suppression_count", 0)
+            d_count = delivery_health.get("duplicate_suppression_count", 0)
+            r_count = delivery_health.get("rate_limit_suppression_count", 0)
+            if suppressions > 0:
+                lines.append(
+                    f"- Quiet-hour: {q_count} | Duplicate: {d_count} | Rate-limit: {r_count}"
+                )
+                lines.append("")
 
     lines += _advisory_footer()
     return "\n".join(lines)

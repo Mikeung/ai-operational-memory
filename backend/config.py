@@ -26,5 +26,14 @@ class Settings(BaseSettings):
     scan_targets: str = "."
     reports_dir: str = "data/reports"
 
+    # Telegram delivery
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""          # never logged or exposed
+    telegram_chat_id: str = ""
+    telegram_daily_digest_enabled: bool = True
+    telegram_critical_alerts_enabled: bool = True
+    telegram_quiet_hours_start: str = "22:00"   # UTC HH:MM
+    telegram_quiet_hours_end: str = "08:00"     # UTC HH:MM
+
 
 settings = Settings()

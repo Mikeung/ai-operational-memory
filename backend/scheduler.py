@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,44 @@ class OperationalScheduler:
                     "Scan job degraded — consecutive error threshold reached",
                     extra={"job_id": job_id, "threshold": _MAX_CONSECUTIVE_ERRORS},
                 )
+
+    def register_cron_job(
+        self,
+        fn: Callable[[], Any],
+        job_id: str,
+        hour: int,
+        minute: int = 0,
+        day_of_week: str | None = None,
+    ) -> None:
+        """Register a daily (or weekly) cron-style delivery job."""
+        trigger = CronTrigger(
+            hour=hour,
+            minute=minute,
+            day_of_week=day_of_week,
+            timezone="UTC",
+        )
+
+        def _wrapped(jid: str = job_id) -> None:
+            self._run_with_tracking(fn, jid, jid)
+
+        self._scheduler.add_job(
+            _wrapped,
+            trigger=trigger,
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=self._grace_seconds,
+            coalesce=True,
+        )
+        self._intervals[job_id] = 86400  # treat as ~daily for staleness detection
+        logger.info(
+            "Cron job registered",
+            extra={
+                "job_id": job_id,
+                "hour": hour,
+                "minute": minute,
+                "day_of_week": day_of_week or "daily",
+            },
+        )
 
     def start(self) -> None:
         self._scheduler.start()

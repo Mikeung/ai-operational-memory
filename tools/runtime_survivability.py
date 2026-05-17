@@ -179,6 +179,8 @@ class RuntimeSurvivabilityChecker:
         db_freelist_count: int | None = None,
         ingestion_quality_score: float | None = None,
         ingestion_quality_score_7d_ago: float | None = None,
+        delivery_failure_count: int | None = None,
+        delivery_enabled: bool = False,
     ) -> SurvivabilityReport:
         """
         Run all survivability checks and return a report.
@@ -233,6 +235,8 @@ class RuntimeSurvivabilityChecker:
         checks.append(self._check_ingestion_quality_degradation(
             ingestion_quality_score, ingestion_quality_score_7d_ago
         ))
+        if delivery_enabled:
+            checks.append(self._check_delivery_health(delivery_failure_count))
 
         passed = sum(1 for c in checks if c.passed)
         warned = sum(1 for c in checks if not c.passed and c.severity == "warning")
@@ -855,6 +859,37 @@ class RuntimeSurvivabilityChecker:
             message=(
                 f"Ingestion quality score stable or improving "
                 f"({past_score:.2f} → {current_score:.2f})."
+            ),
+        )
+
+    def _check_delivery_health(
+        self, delivery_failure_count: int | None
+    ) -> SurvivabilityCheck:
+        if delivery_failure_count is None:
+            return SurvivabilityCheck(
+                name="Telegram Delivery Health",
+                passed=True,
+                severity="ok",
+                message="Telegram delivery metrics not available.",
+            )
+        if delivery_failure_count >= 10:
+            return SurvivabilityCheck(
+                name="Telegram Delivery Health",
+                passed=False,
+                severity="warning",
+                message=(
+                    f"Telegram delivery has accumulated {delivery_failure_count} failure(s). "
+                    "Operator notifications may not be reaching the configured chat."
+                ),
+                evidence=[f"Total delivery failures: {delivery_failure_count}"],
+            )
+        return SurvivabilityCheck(
+            name="Telegram Delivery Health",
+            passed=True,
+            severity="ok",
+            message=(
+                f"Telegram delivery health appears normal "
+                f"({delivery_failure_count} failure(s) total)."
             ),
         )
 
